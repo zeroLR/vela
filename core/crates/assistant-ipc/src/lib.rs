@@ -7,7 +7,7 @@ use std::{
 };
 
 use acp_runtime::SessionManager;
-use domain::ProtocolVersion;
+use domain::{PermissionDecision, ProtocolVersion};
 use harness_discovery::{DiscoveryOptions, DiscoveryService};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -337,6 +337,69 @@ async fn handle_connection(
                         write_value(
                             &writer,
                             &error_response(Some(&request.id), "cancel_failed", message),
+                        )
+                        .await?
+                    }
+                }
+            }
+            "permissions.pending" => {
+                let session_id = request.params.get("session_id").and_then(Value::as_str);
+                let permissions = sessions.pending_permissions(session_id).await;
+                write_value(
+                    &writer,
+                    &success_response(&request.id, json!({ "permissions": permissions })),
+                )
+                .await?;
+            }
+            "permissions.history" => {
+                let session_id = request.params.get("session_id").and_then(Value::as_str);
+                let records = sessions.permission_history(session_id).await;
+                write_value(
+                    &writer,
+                    &success_response(&request.id, json!({ "records": records })),
+                )
+                .await?;
+            }
+            "permission.resolve" => {
+                let permission_id = request.params.get("permission_id").and_then(Value::as_str);
+                let session_id = request.params.get("session_id").and_then(Value::as_str);
+                let run_id = request.params.get("run_id").and_then(Value::as_str);
+                let decision = request.params.get("decision").and_then(Value::as_str);
+                let decision = match decision {
+                    Some("allow_once") => Some(PermissionDecision::AllowOnce),
+                    Some("allow_session") => Some(PermissionDecision::AllowSession),
+                    Some("deny") => Some(PermissionDecision::Deny),
+                    _ => None,
+                };
+                let (Some(permission_id), Some(session_id), Some(run_id), Some(decision)) =
+                    (permission_id, session_id, run_id, decision)
+                else {
+                    write_value(
+                        &writer,
+                        &error_response(
+                            Some(&request.id),
+                            "invalid_params",
+                            "permission_id, session_id, run_id, and a valid decision are required",
+                        ),
+                    )
+                    .await?;
+                    continue;
+                };
+                match sessions
+                    .decide_permission(permission_id, session_id, run_id, decision)
+                    .await
+                {
+                    Ok(record) => {
+                        write_value(&writer, &success_response(&request.id, json!(record))).await?
+                    }
+                    Err(message) => {
+                        write_value(
+                            &writer,
+                            &error_response(
+                                Some(&request.id),
+                                "permission_resolution_failed",
+                                message,
+                            ),
                         )
                         .await?
                     }

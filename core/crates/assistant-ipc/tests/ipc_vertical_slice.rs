@@ -198,6 +198,48 @@ async fn agent_registry_can_be_listed_and_explicitly_refreshed() {
 }
 
 #[tokio::test]
+async fn permission_queries_are_structured_and_stale_decisions_are_rejected() {
+    let server = TestServer::start("permissions").await;
+    let (mut reader, mut writer) = server.connect().await;
+
+    send(
+        &mut writer,
+        &request("permissions-1", "permissions.pending", json!({})),
+    )
+    .await;
+    assert_eq!(
+        receive(&mut reader).await["result"]["permissions"],
+        json!([])
+    );
+
+    send(
+        &mut writer,
+        &request("permissions-2", "permissions.history", json!({})),
+    )
+    .await;
+    assert_eq!(receive(&mut reader).await["result"]["records"], json!([]));
+
+    send(
+        &mut writer,
+        &request(
+            "permissions-3",
+            "permission.resolve",
+            json!({
+                "permission_id": "permission-stale",
+                "session_id": "session-stale",
+                "run_id": "run-stale",
+                "decision": "allow_once",
+            }),
+        ),
+    )
+    .await;
+    assert_eq!(
+        receive(&mut reader).await["error"]["code"],
+        "permission_resolution_failed"
+    );
+}
+
+#[tokio::test]
 async fn incompatible_major_version_is_rejected() {
     let server = TestServer::start("version").await;
     let (mut reader, mut writer) = server.connect().await;

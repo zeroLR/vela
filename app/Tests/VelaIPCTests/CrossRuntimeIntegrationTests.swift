@@ -17,12 +17,20 @@ struct CrossRuntimeIntegrationTests {
         let fakeHarnessPath = URL(fileURLWithPath: corePath)
             .deletingLastPathComponent()
             .appendingPathComponent("fake-acp-harness").path
-        let config: [String: Any] = ["harnesses": [[
-            "id": "fake-swift",
-            "display_name": "Fake Swift Agent",
-            "command": fakeHarnessPath,
-            "launch_arguments": ["--scenario", "ready"],
-        ]]]
+        let config: [String: Any] = ["harnesses": [
+            [
+                "id": "fake-swift",
+                "display_name": "Fake Swift Agent",
+                "command": fakeHarnessPath,
+                "launch_arguments": ["--scenario", "ready"],
+            ],
+            [
+                "id": "fake-permission",
+                "display_name": "Fake Permission Agent",
+                "command": fakeHarnessPath,
+                "launch_arguments": ["--scenario", "permission", "--permission-kind", "edit"],
+            ],
+        ]]
         guard
             FileManager.default.isExecutableFile(atPath: fakeHarnessPath),
             let configData = try? JSONSerialization.data(withJSONObject: config),
@@ -48,6 +56,9 @@ struct CrossRuntimeIntegrationTests {
         #expect(await waitUntil {
             client.agentRegistry.agents.contains { $0.id == "fake-swift" && $0.status == .ready }
         })
+        #expect(client.agentRegistry.agents.contains {
+            $0.id == "fake-permission" && $0.status == .ready
+        })
 
         #expect(client.createSession(agentID: "fake-swift", cwd: FileManager.default.currentDirectoryPath) != nil)
         #expect(await waitUntil { client.session?.agentID == "fake-swift" })
@@ -57,6 +68,22 @@ struct CrossRuntimeIntegrationTests {
         })
         #expect(client.sessionEvents.contains {
             if case .textDelta = $0.payload { true } else { false }
+        })
+
+        #expect(client.createSession(agentID: "fake-permission", cwd: FileManager.default.currentDirectoryPath) != nil)
+        #expect(await waitUntil { client.session?.agentID == "fake-permission" })
+        #expect(client.prompt("request permission") != nil)
+        #expect(await waitUntil { client.pendingPermissions.count == 1 })
+        guard let permission = client.pendingPermissions.first else {
+            Issue.record("expected a pending permission request")
+            return
+        }
+        #expect(client.resolvePermission(permission, decision: .allowOnce) != nil)
+        #expect(await waitUntil {
+            client.pendingPermissions.isEmpty && client.sessionEvents.last?.payload.isTerminal == true
+        })
+        #expect(client.permissionHistory.contains {
+            $0.request.id == permission.id && $0.status == .allowed
         })
 
         #expect(client.startStream(count: 3, intervalMilliseconds: 5) != nil)

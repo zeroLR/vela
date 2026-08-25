@@ -55,6 +55,7 @@ struct DiagnosticsView: View {
 
             agentList
             sessionPanel
+            permissionPanel
 
             HSplitView {
                 eventList
@@ -62,7 +63,7 @@ struct DiagnosticsView: View {
             }
         }
         .padding(20)
-        .frame(minWidth: 900, minHeight: 900)
+        .frame(minWidth: 900, minHeight: 1080)
         .onChange(of: client.agentRegistry.agents) { _, agents in
             if !agents.contains(where: { $0.id == selectedAgentID && $0.status == .ready }) {
                 selectedAgentID = agents.first(where: { $0.status == .ready })?.id ?? ""
@@ -210,13 +211,69 @@ struct DiagnosticsView: View {
         }
     }
 
+    private var permissionPanel: some View {
+        GroupBox {
+            if client.pendingPermissions.isEmpty {
+                Text("No pending permission requests")
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 90, alignment: .center)
+            } else {
+                List(client.pendingPermissions) { request in
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text(request.title).font(.headline)
+                            Text(request.category.rawValue)
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.orange)
+                            Spacer()
+                            Text(request.agentID).foregroundStyle(.secondary)
+                        }
+                        if let target = request.target {
+                            Text(target)
+                                .font(.system(.caption, design: .monospaced))
+                                .textSelection(.enabled)
+                        }
+                        Text("\(request.sessionID) · \(request.runID) · \(request.id)")
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                        HStack {
+                            Button("Allow Once") {
+                                client.resolvePermission(request, decision: .allowOnce)
+                            }
+                            .disabled(!request.canAllow)
+                            Button("Allow for Session") {
+                                client.resolvePermission(request, decision: .allowSession)
+                            }
+                            .disabled(!request.canAllow)
+                            Button("Dismiss / Deny", role: .destructive) {
+                                client.resolvePermission(request, decision: .deny)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+                .frame(height: 150)
+            }
+        } label: {
+            HStack {
+                Text("Permission Broker")
+                Spacer()
+                Text("\(client.pendingPermissions.count) pending · \(client.permissionHistory.count) audited")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
     private func eventDescription(_ payload: AgentEventPayload) -> String {
         switch payload {
         case let .textDelta(text): return text
         case let .planUpdated(entries): return "Plan: " + entries.map(\.content).joined(separator: " → ")
         case let .toolStarted(_, title): return "Tool started: \(title)"
         case let .toolFinished(id, status): return "Tool \(id): \(status)"
-        case let .permissionRequested(_, title, _): return "Permission requested: \(title ?? "unknown tool") (safely cancelled)"
+        case let .permissionRequested(request): return "Permission requested: \(request.title) [\(request.category.rawValue)]"
+        case let .permissionResolved(record): return "Permission \(record.status.rawValue): \(record.request.title)"
         case let .usageUpdated(used, size): return "Usage: \(used) / \(size) tokens"
         case let .completed(reason): return "Completed: \(reason)"
         case .cancelled: return "Cancelled"

@@ -212,12 +212,148 @@ public struct SessionPlanEntry: Equatable, Sendable {
     public let priority: String
 }
 
+public enum PermissionCategory: String, Equatable, Sendable {
+    case filesystemRead = "filesystem.read"
+    case filesystemWrite = "filesystem.write"
+    case shellExecute = "shell.execute"
+    case networkOpenURL = "network.open_url"
+    case mcpInvoke = "mcp.invoke"
+    case other
+}
+
+public enum PermissionOptionKind: String, Equatable, Sendable {
+    case allowOnce = "allow_once"
+    case allowAlways = "allow_always"
+    case rejectOnce = "reject_once"
+    case rejectAlways = "reject_always"
+}
+
+public struct PermissionOption: Equatable, Sendable {
+    public let id: String
+    public let name: String
+    public let kind: PermissionOptionKind
+
+    init?(value: JSONValue) {
+        guard
+            let object = value.objectValue,
+            let id = object["id"]?.stringValue,
+            let name = object["name"]?.stringValue,
+            let kindValue = object["kind"]?.stringValue,
+            let kind = PermissionOptionKind(rawValue: kindValue)
+        else { return nil }
+        self.id = id
+        self.name = name
+        self.kind = kind
+    }
+}
+
+public struct PermissionRequest: Identifiable, Equatable, Sendable {
+    public let id: String
+    public let agentID: String
+    public let sessionID: String
+    public let runID: String
+    public let requestID: String
+    public let toolCallID: String
+    public let category: PermissionCategory
+    public let title: String
+    public let target: String?
+    public let options: [PermissionOption]
+    public let createdAtMilliseconds: UInt64
+    public let expiresAtMilliseconds: UInt64
+
+    init?(value: JSONValue) {
+        guard
+            let object = value.objectValue,
+            let id = object["id"]?.stringValue,
+            let agentID = object["agent_id"]?.stringValue,
+            let sessionID = object["session_id"]?.stringValue,
+            let runID = object["run_id"]?.stringValue,
+            let requestID = object["request_id"]?.stringValue,
+            let toolCallID = object["tool_call_id"]?.stringValue,
+            let categoryValue = object["category"]?.stringValue,
+            let category = PermissionCategory(rawValue: categoryValue),
+            let title = object["title"]?.stringValue,
+            let optionValues = object["options"]?.arrayValue,
+            let createdValue = object["created_at_ms"]?.numberValue,
+            let created = UInt64(exactly: createdValue),
+            let expiresValue = object["expires_at_ms"]?.numberValue,
+            let expires = UInt64(exactly: expiresValue)
+        else { return nil }
+        let options = optionValues.compactMap(PermissionOption.init(value:))
+        guard options.count == optionValues.count else { return nil }
+        self.id = id
+        self.agentID = agentID
+        self.sessionID = sessionID
+        self.runID = runID
+        self.requestID = requestID
+        self.toolCallID = toolCallID
+        self.category = category
+        self.title = title
+        target = object["target"]?.stringValue
+        self.options = options
+        createdAtMilliseconds = created
+        expiresAtMilliseconds = expires
+    }
+
+    public var canAllow: Bool {
+        options.contains { $0.kind == .allowOnce }
+    }
+}
+
+public enum PermissionDecision: String, Equatable, Sendable {
+    case allowOnce = "allow_once"
+    case allowSession = "allow_session"
+    case deny
+}
+
+public enum PermissionResolutionStatus: String, Equatable, Sendable {
+    case allowed, denied
+    case timedOut = "timed_out"
+    case cancelled
+}
+
+public enum PermissionResolutionSource: String, Equatable, Sendable {
+    case user
+    case sessionGrant = "session_grant"
+    case timeout, cancellation
+}
+
+public struct PermissionAuditRecord: Equatable, Sendable {
+    public let request: PermissionRequest
+    public let decision: PermissionDecision?
+    public let status: PermissionResolutionStatus
+    public let source: PermissionResolutionSource
+    public let selectedOptionID: String?
+    public let resolvedAtMilliseconds: UInt64
+
+    init?(value: JSONValue) {
+        guard
+            let object = value.objectValue,
+            let requestValue = object["request"],
+            let request = PermissionRequest(value: requestValue),
+            let statusValue = object["status"]?.stringValue,
+            let status = PermissionResolutionStatus(rawValue: statusValue),
+            let sourceValue = object["source"]?.stringValue,
+            let source = PermissionResolutionSource(rawValue: sourceValue),
+            let resolvedValue = object["resolved_at_ms"]?.numberValue,
+            let resolved = UInt64(exactly: resolvedValue)
+        else { return nil }
+        self.request = request
+        decision = object["decision"]?.stringValue.flatMap(PermissionDecision.init(rawValue:))
+        self.status = status
+        self.source = source
+        selectedOptionID = object["selected_option_id"]?.stringValue
+        resolvedAtMilliseconds = resolved
+    }
+}
+
 public enum AgentEventPayload: Equatable, Sendable {
     case textDelta(String)
     case planUpdated([SessionPlanEntry])
     case toolStarted(id: String, title: String)
     case toolFinished(id: String, status: String)
-    case permissionRequested(id: String, title: String?, options: [String])
+    case permissionRequested(PermissionRequest)
+    case permissionResolved(PermissionAuditRecord)
     case usageUpdated(used: UInt64, size: UInt64)
     case completed(stopReason: String)
     case cancelled
@@ -283,9 +419,11 @@ public struct AgentEvent: Identifiable, Equatable, Sendable {
             guard let id = data["tool_call_id"]?.stringValue, let status = data["status"]?.stringValue else { return nil }
             return .toolFinished(id: id, status: status)
         case "permission_requested":
-            guard let id = data["tool_call_id"]?.stringValue else { return nil }
-            let options = data["options"]?.arrayValue?.compactMap(\.stringValue) ?? []
-            return .permissionRequested(id: id, title: data["title"]?.stringValue, options: options)
+            guard let value = data["request"], let request = PermissionRequest(value: value) else { return nil }
+            return .permissionRequested(request)
+        case "permission_resolved":
+            guard let value = data["record"], let record = PermissionAuditRecord(value: value) else { return nil }
+            return .permissionResolved(record)
         case "usage_updated":
             guard
                 let usedValue = data["used"]?.numberValue,

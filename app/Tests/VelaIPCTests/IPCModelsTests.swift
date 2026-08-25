@@ -73,4 +73,34 @@ struct IPCModelsTests {
         #expect(event.payload == .textDelta("hello"))
         #expect(!event.payload.isTerminal)
     }
+
+    @Test("permission requests and audit records decode as Vela models")
+    func permissionEvents() throws {
+        let request = #"{"id":"permission-1","agent_id":"fake","session_id":"session-1","run_id":"run-1","request_id":"prompt-1","tool_call_id":"tool-1","category":"filesystem.write","title":"Write file","target":"/tmp/a.txt","options":[{"id":"allow","name":"Allow once","kind":"allow_once"}],"created_at_ms":40,"expires_at_ms":80}"#
+        let requested = try JSONDecoder().decode(
+            IPCMessage.self,
+            from: Data((#"{"version":{"major":1,"minor":0},"event":"agent.event","data":{"session_id":"session-1","run_id":"run-1","request_id":"prompt-1","sequence":1,"timestamp_ms":42,"kind":"permission_requested","request":"# + request + "}}").utf8)
+        )
+        let requestedData = try #require(requested.data)
+        let requestedEvent = try #require(AgentEvent(data: requestedData))
+        guard case let .permissionRequested(permission) = requestedEvent.payload else {
+            Issue.record("expected permission request")
+            return
+        }
+        #expect(permission.category == .filesystemWrite)
+        #expect(permission.canAllow)
+
+        let resolved = try JSONDecoder().decode(
+            IPCMessage.self,
+            from: Data((#"{"version":{"major":1,"minor":0},"event":"agent.event","data":{"session_id":"session-1","run_id":"run-1","request_id":"prompt-1","sequence":2,"timestamp_ms":43,"kind":"permission_resolved","record":{"request":"# + request + #", "decision":"allow_once","status":"allowed","source":"user","selected_option_id":"allow","resolved_at_ms":43}}}"#).utf8)
+        )
+        let resolvedData = try #require(resolved.data)
+        let resolvedEvent = try #require(AgentEvent(data: resolvedData))
+        guard case let .permissionResolved(record) = resolvedEvent.payload else {
+            Issue.record("expected permission audit record")
+            return
+        }
+        #expect(record.status == .allowed)
+        #expect(record.decision == .allowOnce)
+    }
 }

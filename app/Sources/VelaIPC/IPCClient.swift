@@ -22,6 +22,8 @@ public final class IPCClient: ObservableObject {
     @Published public private(set) var sessionEvents: [AgentEvent] = []
     @Published public private(set) var activeRunID: String?
     @Published public private(set) var isCreatingSession = false
+    @Published public private(set) var pendingPermissions: [PermissionRequest] = []
+    @Published public private(set) var permissionHistory: [PermissionAuditRecord] = []
 
     private var connection: NWConnection?
     private var receiveBuffer = Data()
@@ -59,6 +61,8 @@ public final class IPCClient: ObservableObject {
         terminalRunIDs.removeAll()
         activeRunID = nil
         isCreatingSession = false
+        pendingPermissions.removeAll()
+        permissionHistory.removeAll()
         state = reason == nil ? .disconnected : .degraded
         if let reason {
             appendDiagnostic(reason)
@@ -111,6 +115,44 @@ public final class IPCClient: ObservableObject {
         return send(
             method: "session.cancel",
             params: ["session_id": .string(session.id), "run_id": .string(runID)]
+        )
+    }
+
+    @discardableResult
+    public func resolvePermission(
+        _ request: PermissionRequest,
+        decision: PermissionDecision
+    ) -> String? {
+        guard pendingPermissions.contains(where: { $0.id == request.id }) else {
+            appendDiagnostic("Permission request is no longer pending [\(request.id)]")
+            return nil
+        }
+        return send(
+            method: "permission.resolve",
+            params: [
+                "permission_id": .string(request.id),
+                "session_id": .string(request.sessionID),
+                "run_id": .string(request.runID),
+                "decision": .string(decision.rawValue),
+            ]
+        )
+    }
+
+    @discardableResult
+    public func listPendingPermissions() -> String? {
+        guard let session else { return nil }
+        return send(
+            method: "permissions.pending",
+            params: ["session_id": .string(session.id)]
+        )
+    }
+
+    @discardableResult
+    public func loadPermissionHistory() -> String? {
+        guard let session else { return nil }
+        return send(
+            method: "permissions.history",
+            params: ["session_id": .string(session.id)]
         )
     }
 
@@ -290,7 +332,11 @@ public final class IPCClient: ObservableObject {
             session = descriptor
             sessionEvents.removeAll()
             terminalRunIDs.removeAll()
+            pendingPermissions.removeAll()
+            permissionHistory.removeAll()
             appendDiagnostic("session.create ready [\(descriptor.id), pid \(descriptor.processID)]")
+            _ = listPendingPermissions()
+            _ = loadPermissionHistory()
         } else if method == "session.prompt" {
             guard let runID = message.result?["run_id"]?.stringValue else {
                 appendDiagnostic("session.prompt returned an invalid run")
@@ -298,6 +344,36 @@ public final class IPCClient: ObservableObject {
             }
             activeRunID = runID
             appendDiagnostic("session.prompt accepted [\(runID)]")
+        } else if method == "permissions.pending" {
+            guard let values = message.result?["permissions"]?.arrayValue else {
+                appendDiagnostic("permissions.pending returned an invalid result")
+                return
+            }
+            let permissions = values.compactMap(PermissionRequest.init(value:))
+            guard permissions.count == values.count else {
+                appendDiagnostic("permissions.pending returned malformed requests")
+                return
+            }
+            pendingPermissions = permissions
+        } else if method == "permissions.history" {
+            guard let values = message.result?["records"]?.arrayValue else {
+                appendDiagnostic("permissions.history returned an invalid result")
+                return
+            }
+            let records = values.compactMap(PermissionAuditRecord.init(value:))
+            guard records.count == values.count else {
+                appendDiagnostic("permissions.history returned malformed records")
+                return
+            }
+            permissionHistory = records
+        } else if method == "permission.resolve" {
+            guard let result = message.result,
+                  let record = PermissionAuditRecord(value: .object(result)) else {
+                appendDiagnostic("permission.resolve returned an invalid audit record")
+                return
+            }
+            acceptPermissionRecord(record)
+            appendDiagnostic("permission.resolve \(record.status.rawValue) [\(record.request.id)]")
         } else {
             appendDiagnostic("\(method) completed [\(id)]")
         }
@@ -313,12 +389,31 @@ public final class IPCClient: ObservableObject {
             return
         }
         sessionEvents.append(event)
+        switch event.payload {
+        case let .permissionRequested(request):
+            if !pendingPermissions.contains(where: { $0.id == request.id }) {
+                pendingPermissions.append(request)
+                pendingPermissions.sort { $0.createdAtMilliseconds < $1.createdAtMilliseconds }
+            }
+        case let .permissionResolved(record):
+            acceptPermissionRecord(record)
+        default:
+            break
+        }
         if event.payload.isTerminal {
             terminalRunIDs.insert(event.runID)
             if activeRunID == event.runID {
                 activeRunID = nil
             }
+            pendingPermissions.removeAll { $0.runID == event.runID }
             appendDiagnostic("Agent run terminated [\(event.runID)]")
+        }
+    }
+
+    private func acceptPermissionRecord(_ record: PermissionAuditRecord) {
+        pendingPermissions.removeAll { $0.id == record.request.id }
+        if !permissionHistory.contains(where: { $0.request.id == record.request.id }) {
+            permissionHistory.append(record)
         }
     }
 
