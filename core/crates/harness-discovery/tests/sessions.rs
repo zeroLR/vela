@@ -1,4 +1,4 @@
-use std::{path::PathBuf, time::Duration};
+use std::{collections::BTreeMap, path::PathBuf, time::Duration};
 
 use acp_runtime::{AcpLaunchSpec, SessionManager};
 use domain::{AgentEvent, AgentEventPayload, SessionState};
@@ -7,6 +7,26 @@ fn spec(scenario: &str) -> AcpLaunchSpec {
     AcpLaunchSpec {
         executable: PathBuf::from(env!("CARGO_BIN_EXE_fake-acp-harness")),
         arguments: vec!["--scenario".to_owned(), scenario.to_owned()],
+        environment: BTreeMap::new(),
+        enforced_session_mode: "safe".to_owned(),
+    }
+}
+
+#[tokio::test]
+async fn session_creation_fails_closed_when_safe_mode_cannot_be_enforced() {
+    let manager = SessionManager::new(Duration::from_secs(1), Duration::from_secs(1));
+    let cwd = std::env::current_dir().unwrap();
+
+    for (scenario, expected) in [
+        ("missing-mode", "did not advertise session modes"),
+        ("unsupported-mode", "does not offer required session mode"),
+        ("reject-mode", "rejected required session mode"),
+    ] {
+        let error = manager
+            .create(format!("fake-{scenario}"), spec(scenario), cwd.clone())
+            .await
+            .unwrap_err();
+        assert!(error.contains(expected), "unexpected error: {error}");
     }
 }
 

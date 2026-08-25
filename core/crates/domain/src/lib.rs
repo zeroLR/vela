@@ -47,6 +47,7 @@ pub struct AgentDescriptor {
     pub executable_path: Option<String>,
     pub version: Option<String>,
     pub protocol_version: Option<String>,
+    pub enforced_session_mode: String,
     pub capabilities: Vec<String>,
     pub auth_methods: Vec<String>,
     pub diagnostic: Option<String>,

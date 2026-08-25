@@ -33,7 +33,16 @@ async fn refresh_normalizes_acp_results_and_failure_states() {
         &config_path,
         serde_json::to_vec_pretty(&json!({
             "harnesses": [
-                harness("fake-ready", executable, &["--scenario", "ready"]),
+                harness(
+                    "fake-ready",
+                    executable,
+                    &[
+                        "--scenario",
+                        "ready",
+                        "--require-env",
+                        "VELA_TEST_ENFORCEMENT=enabled",
+                    ],
+                ),
                 harness("fake-auth", executable, &["--scenario", "unauthenticated"]),
                 harness("fake-version", executable, &["--scenario", "incompatible"]),
                 harness("fake-invalid", executable, &["--scenario", "invalid"]),
@@ -64,8 +73,18 @@ async fn refresh_normalizes_acp_results_and_failure_states() {
     assert_eq!(ready.status, AgentStatus::Ready);
     assert_eq!(ready.version.as_deref(), Some("fake-acp-harness 0.1.0"));
     assert_eq!(ready.protocol_version.as_deref(), Some("1"));
+    assert_eq!(ready.enforced_session_mode, "safe");
     assert!(ready.capabilities.iter().any(|item| item == "prompt.image"));
     assert!(ready.capabilities.iter().any(|item| item == "session.list"));
+    let launch = service.launch_spec("fake-ready").await.unwrap();
+    assert_eq!(launch.enforced_session_mode, "safe");
+    assert_eq!(
+        launch
+            .environment
+            .get("VELA_TEST_ENFORCEMENT")
+            .map(String::as_str),
+        Some("enabled")
+    );
     assert_eq!(
         agent(&snapshot, "fake-auth").status,
         AgentStatus::Unauthenticated
@@ -90,6 +109,8 @@ fn harness(id: &str, executable: &str, arguments: &[&str]) -> serde_json::Value 
         "id": id,
         "display_name": id,
         "command": executable,
+        "enforced_session_mode": "safe",
+        "launch_environment": {"VELA_TEST_ENFORCEMENT": "enabled"},
         "launch_arguments": arguments
     })
 }

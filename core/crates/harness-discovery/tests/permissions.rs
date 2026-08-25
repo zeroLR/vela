@@ -1,4 +1,4 @@
-use std::{path::PathBuf, time::Duration};
+use std::{collections::BTreeMap, path::PathBuf, time::Duration};
 
 use acp_runtime::{AcpLaunchSpec, SessionManager};
 use domain::{
@@ -16,6 +16,8 @@ fn spec(scenario: &str, kind: &str) -> AcpLaunchSpec {
             "--permission-kind".to_owned(),
             kind.to_owned(),
         ],
+        environment: BTreeMap::new(),
+        enforced_session_mode: "safe".to_owned(),
     }
 }
 

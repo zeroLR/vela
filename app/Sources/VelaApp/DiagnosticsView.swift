@@ -120,6 +120,9 @@ struct DiagnosticsView: View {
                             Text(path).font(.system(.caption, design: .monospaced))
                                 .textSelection(.enabled)
                         }
+                        Text("Enforced mode: \(agent.enforcedSessionMode)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                         if !agent.capabilities.isEmpty {
                             Text(agent.capabilities.joined(separator: " · "))
                                 .font(.caption)

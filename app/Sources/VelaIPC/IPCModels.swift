@@ -100,6 +100,7 @@ public struct AgentDescriptor: Identifiable, Codable, Equatable, Sendable {
     public let executablePath: String?
     public let version: String?
     public let protocolVersion: String?
+    public let enforcedSessionMode: String
     public let capabilities: [String]
     public let authMethods: [String]
     public let diagnostic: String?
@@ -113,6 +114,7 @@ public struct AgentDescriptor: Identifiable, Codable, Equatable, Sendable {
         case executablePath = "executable_path"
         case version
         case protocolVersion = "protocol_version"
+        case enforcedSessionMode = "enforced_session_mode"
         case capabilities
         case authMethods = "auth_methods"
         case diagnostic
@@ -127,7 +129,8 @@ public struct AgentDescriptor: Identifiable, Codable, Equatable, Sendable {
             let sourceValue = object["source"]?.stringValue,
             let source = AgentSource(rawValue: sourceValue),
             let statusValue = object["status"]?.stringValue,
-            let status = AgentStatus(rawValue: statusValue)
+            let status = AgentStatus(rawValue: statusValue),
+            let enforcedSessionMode = object["enforced_session_mode"]?.stringValue
         else { return nil }
 
         self.id = id
@@ -138,6 +141,7 @@ public struct AgentDescriptor: Identifiable, Codable, Equatable, Sendable {
         executablePath = object["executable_path"]?.stringValue
         version = object["version"]?.stringValue
         protocolVersion = object["protocol_version"]?.stringValue
+        self.enforcedSessionMode = enforcedSessionMode
         capabilities = object["capabilities"]?.arrayValue?.compactMap(\.stringValue) ?? []
         authMethods = object["auth_methods"]?.arrayValue?.compactMap(\.stringValue) ?? []
         diagnostic = object["diagnostic"]?.stringValue

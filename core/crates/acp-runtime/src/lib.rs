@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     path::PathBuf,
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -13,7 +13,7 @@ use agent_client_protocol::{
         v1::{
             CancelNotification, ContentBlock, InitializeRequest, NewSessionRequest, PromptRequest,
             RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
-            SelectedPermissionOutcome, SessionNotification, TextContent,
+            SelectedPermissionOutcome, SessionNotification, SetSessionModeRequest, TextContent,
         },
         ProtocolVersion,
     },
@@ -33,6 +33,8 @@ use tokio::sync::{broadcast, mpsc, oneshot, RwLock};
 pub struct AcpLaunchSpec {
     pub executable: PathBuf,
     pub arguments: Vec<String>,
+    pub environment: BTreeMap<String, String>,
+    pub enforced_session_mode: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -65,7 +67,11 @@ pub async fn initialize(
     spec: AcpLaunchSpec,
     timeout: Duration,
 ) -> Result<InitializationSummary, InitializeFailure> {
-    let agent = AcpAgent::new(AcpAgentConfig::new(spec.executable).args(spec.arguments));
+    let agent = AcpAgent::new(
+        AcpAgentConfig::new(spec.executable)
+            .args(spec.arguments)
+            .envs(spec.environment),
+    );
     let initialize = Client.builder().name("vela").connect_with(
         agent,
         |connection: ConnectionTo<Agent>| async move {
@@ -516,7 +522,17 @@ async fn run_session_process(
     ready_tx: oneshot::Sender<Result<ReadySession, String>>,
     context: SessionTaskContext,
 ) -> Result<(), String> {
-    let agent = AcpAgent::new(AcpAgentConfig::new(spec.executable).args(spec.arguments));
+    let AcpLaunchSpec {
+        executable,
+        arguments,
+        environment,
+        enforced_session_mode,
+    } = spec;
+    let agent = AcpAgent::new(
+        AcpAgentConfig::new(executable)
+            .args(arguments)
+            .envs(environment),
+    );
     let (stdin, stdout, stderr, child) =
         agent.spawn_process().map_err(|error| error.to_string())?;
     let process_id = child.id();
@@ -536,6 +552,7 @@ async fn run_session_process(
         command_rx,
         ready_tx,
         process_id,
+        enforced_session_mode,
         context,
     );
     tokio::pin!(protocol);
@@ -568,6 +585,7 @@ async fn run_protocol<T>(
     mut commands: mpsc::Receiver<SessionCommand>,
     ready_tx: oneshot::Sender<Result<ReadySession, String>>,
     process_id: u32,
+    enforced_session_mode: String,
     context: SessionTaskContext,
 ) -> Result<(), String>
 where
@@ -682,7 +700,48 @@ where
                 .send_request(NewSessionRequest::new(&cwd))
                 .block_task()
                 .await?;
+            let modes = match response.modes.as_ref() {
+                Some(modes) => modes,
+                None => {
+                    let message = format!(
+                        "ACP adapter did not advertise session modes; required '{enforced_session_mode}' cannot be enforced"
+                    );
+                    let _ = ready_tx.send(Err(message));
+                    return Ok(());
+                }
+            };
+            if !modes
+                .available_modes
+                .iter()
+                .any(|mode| mode.id.to_string() == enforced_session_mode)
+            {
+                let message = format!(
+                    "ACP adapter does not offer required session mode '{enforced_session_mode}'"
+                );
+                let _ = ready_tx.send(Err(message));
+                return Ok(());
+            }
+            if let Err(error) = connection
+                .send_request(SetSessionModeRequest::new(
+                    response.session_id.clone(),
+                    enforced_session_mode.clone(),
+                ))
+                .block_task()
+                .await
+            {
+                let message = format!(
+                    "ACP adapter rejected required session mode '{enforced_session_mode}': {error}"
+                );
+                let _ = ready_tx.send(Err(message));
+                return Err(error);
+            }
             let acp_session_id = response.session_id.to_string();
+            tracing::info!(
+                component = "acp_session",
+                acp_session_id,
+                enforced_session_mode,
+                "ACP session mode enforced"
+            );
             let _ = ready_tx.send(Ok(ReadySession {
                 acp_session_id: acp_session_id.clone(),
                 process_id,

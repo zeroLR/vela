@@ -20,6 +20,9 @@ enum Scenario {
     UnexpectedExit,
     MalformedEvent,
     Permission,
+    MissingMode,
+    UnsupportedMode,
+    RejectMode,
 }
 
 impl Scenario {
@@ -34,6 +37,9 @@ impl Scenario {
             "unexpected-exit" => Self::UnexpectedExit,
             "malformed-event" => Self::MalformedEvent,
             "permission" => Self::Permission,
+            "missing-mode" => Self::MissingMode,
+            "unsupported-mode" => Self::UnsupportedMode,
+            "reject-mode" => Self::RejectMode,
             _ => Self::Ready,
         }
     }
@@ -52,6 +58,15 @@ fn main() {
         .unwrap_or(Scenario::Ready);
     let permission_kind =
         option_value(&arguments, "--permission-kind").unwrap_or_else(|| "edit".to_owned());
+    if let Some(requirement) = option_value(&arguments, "--require-env") {
+        let (name, expected) = requirement
+            .split_once('=')
+            .expect("NAME=value environment requirement");
+        if std::env::var(name).as_deref() != Ok(expected) {
+            eprintln!("required environment {name} was not enforced");
+            std::process::exit(19);
+        }
+    }
     if let Some(path) = option_value(&arguments, "--pid-file").map(PathBuf::from) {
         fs::write(path, std::process::id().to_string()).expect("write pid file");
     }
@@ -70,11 +85,18 @@ fn main() {
         let id = request.get("id").cloned().unwrap_or(Value::Null);
         match request.get("method").and_then(Value::as_str) {
             Some("initialize") => respond_initialize(scenario, id),
-            Some("session/new") => write_json(json!({
-                "jsonrpc": "2.0",
-                "id": id,
-                "result": {"sessionId": "fake-session-1"}
-            })),
+            Some("session/new") => respond_new_session(scenario, id),
+            Some("session/set_mode") => {
+                if matches!(scenario, Scenario::RejectMode) {
+                    write_json(json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": {"code": -32602, "message": "safe mode rejected"}
+                    }));
+                } else {
+                    write_json(json!({"jsonrpc": "2.0", "id": id, "result": {}}));
+                }
+            }
             Some("session/prompt") => respond_prompt(
                 scenario,
                 id,
@@ -127,7 +149,10 @@ fn respond_initialize(scenario: Scenario, id: Value) {
         | Scenario::PromptTimeout
         | Scenario::UnexpectedExit
         | Scenario::MalformedEvent
-        | Scenario::Permission => write_json(json!({
+        | Scenario::Permission
+        | Scenario::MissingMode
+        | Scenario::UnsupportedMode
+        | Scenario::RejectMode => write_json(json!({
             "jsonrpc": "2.0",
             "id": id,
             "result": {
@@ -147,6 +172,30 @@ fn respond_initialize(scenario: Scenario, id: Value) {
             }
         })),
     }
+}
+
+fn respond_new_session(scenario: Scenario, id: Value) {
+    let result = match scenario {
+        Scenario::MissingMode => json!({"sessionId": "fake-session-1"}),
+        Scenario::UnsupportedMode => json!({
+            "sessionId": "fake-session-1",
+            "modes": {
+                "currentModeId": "unsafe",
+                "availableModes": [{"id": "unsafe", "name": "Unsafe"}]
+            }
+        }),
+        _ => json!({
+            "sessionId": "fake-session-1",
+            "modes": {
+                "currentModeId": "unsafe",
+                "availableModes": [
+                    {"id": "unsafe", "name": "Unsafe"},
+                    {"id": "safe", "name": "Safe"}
+                ]
+            }
+        }),
+    };
+    write_json(json!({"jsonrpc": "2.0", "id": id, "result": result}));
 }
 
 fn respond_prompt(
@@ -209,7 +258,10 @@ fn respond_prompt(
         Scenario::Timeout
         | Scenario::Invalid
         | Scenario::Unauthenticated
-        | Scenario::Incompatible => {}
+        | Scenario::Incompatible
+        | Scenario::MissingMode
+        | Scenario::UnsupportedMode
+        | Scenario::RejectMode => {}
     }
 }
 

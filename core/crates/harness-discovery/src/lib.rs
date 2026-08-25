@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet,
+    collections::{BTreeMap, HashSet},
     ffi::OsString,
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
@@ -88,6 +88,8 @@ impl DiscoveryService {
         Ok(AcpLaunchSpec {
             executable: PathBuf::from(executable),
             arguments: definition.launch_arguments,
+            environment: definition.launch_environment,
+            enforced_session_mode: definition.enforced_session_mode,
         })
     }
 
@@ -130,6 +132,8 @@ struct HarnessDefinition {
     provider_command: Option<String>,
     version_arguments: Vec<String>,
     launch_arguments: Vec<String>,
+    launch_environment: BTreeMap<String, String>,
+    enforced_session_mode: String,
     source: AgentSource,
 }
 
@@ -152,6 +156,9 @@ struct UserHarnessDefinition {
     version_arguments: Vec<String>,
     #[serde(default)]
     launch_arguments: Vec<String>,
+    #[serde(default)]
+    launch_environment: BTreeMap<String, String>,
+    enforced_session_mode: String,
 }
 
 fn custom_adapter() -> String {
@@ -172,6 +179,8 @@ fn built_in_definitions() -> Vec<HarnessDefinition> {
             provider_command: Some("claude".to_owned()),
             version_arguments: version_arguments(),
             launch_arguments: Vec::new(),
+            launch_environment: BTreeMap::new(),
+            enforced_session_mode: "default".to_owned(),
             source: AgentSource::BuiltIn,
         },
         HarnessDefinition {
@@ -182,6 +191,14 @@ fn built_in_definitions() -> Vec<HarnessDefinition> {
             provider_command: Some("codex".to_owned()),
             version_arguments: version_arguments(),
             launch_arguments: Vec::new(),
+            launch_environment: BTreeMap::from([
+                ("INITIAL_AGENT_MODE".to_owned(), "read-only".to_owned()),
+                (
+                    "CODEX_CONFIG".to_owned(),
+                    r#"{"approval_policy":"on-request","sandbox_mode":"read-only","sandbox_workspace_write":{"exclude_slash_tmp":true,"exclude_tmpdir_env_var":true,"network_access":false,"writable_roots":[]}}"#.to_owned(),
+                ),
+            ]),
+            enforced_session_mode: "read-only".to_owned(),
             source: AgentSource::BuiltIn,
         },
     ]
@@ -216,7 +233,11 @@ fn load_definitions(config_path: Option<&Path>) -> (Vec<HarnessDefinition>, Vec<
 
     let mut ids: HashSet<String> = definitions.iter().map(|item| item.id.clone()).collect();
     for (index, item) in config.harnesses.into_iter().enumerate() {
-        if !valid_id(&item.id) || item.command.trim().is_empty() || !ids.insert(item.id.clone()) {
+        if !valid_id(&item.id)
+            || item.command.trim().is_empty()
+            || item.enforced_session_mode.trim().is_empty()
+            || !ids.insert(item.id.clone())
+        {
             failures.push(configuration_error(format!(
                 "Invalid or duplicate user harness at index {index}: {}",
                 item.id
@@ -231,6 +252,8 @@ fn load_definitions(config_path: Option<&Path>) -> (Vec<HarnessDefinition>, Vec<
             provider_command: None,
             version_arguments: item.version_arguments,
             launch_arguments: item.launch_arguments,
+            launch_environment: item.launch_environment,
+            enforced_session_mode: item.enforced_session_mode,
             source: AgentSource::UserDefined,
         });
     }
@@ -302,6 +325,8 @@ async fn discover(definition: HarnessDefinition, options: DiscoveryOptions) -> A
         AcpLaunchSpec {
             executable: executable.clone(),
             arguments: definition.launch_arguments.clone(),
+            environment: definition.launch_environment.clone(),
+            enforced_session_mode: definition.enforced_session_mode.clone(),
         },
         options.initialize_timeout,
     )
@@ -361,6 +386,7 @@ fn descriptor(
             .map(|path| path.to_string_lossy().into_owned()),
         version: details.version,
         protocol_version: details.protocol_version,
+        enforced_session_mode: definition.enforced_session_mode.clone(),
         capabilities: details.capabilities,
         auth_methods: details.auth_methods,
         diagnostic: details.diagnostic,
@@ -377,6 +403,7 @@ fn configuration_error(message: String) -> AgentDescriptor {
         executable_path: None,
         version: None,
         protocol_version: None,
+        enforced_session_mode: String::new(),
         capabilities: Vec::new(),
         auth_methods: Vec::new(),
         diagnostic: Some(message),
@@ -481,7 +508,40 @@ mod tests {
         time::{Duration, SystemTime, UNIX_EPOCH},
     };
 
-    use super::{find_executable, probe_version, valid_id};
+    use super::{built_in_definitions, find_executable, probe_version, valid_id};
+
+    #[test]
+    fn built_in_adapters_have_non_overridable_safe_launch_policies() {
+        let definitions = built_in_definitions();
+        let claude = definitions.iter().find(|item| item.id == "claude").unwrap();
+        assert_eq!(claude.enforced_session_mode, "default");
+        assert!(claude.launch_environment.is_empty());
+
+        let codex = definitions.iter().find(|item| item.id == "codex").unwrap();
+        assert_eq!(codex.enforced_session_mode, "read-only");
+        assert_eq!(
+            codex
+                .launch_environment
+                .get("INITIAL_AGENT_MODE")
+                .map(String::as_str),
+            Some("read-only")
+        );
+        let config: serde_json::Value = serde_json::from_str(
+            codex
+                .launch_environment
+                .get("CODEX_CONFIG")
+                .expect("Codex enforcement config"),
+        )
+        .unwrap();
+        assert_eq!(config["approval_policy"], "on-request");
+        assert_eq!(config["sandbox_mode"], "read-only");
+        assert_eq!(config["sandbox_workspace_write"]["exclude_slash_tmp"], true);
+        assert_eq!(
+            config["sandbox_workspace_write"]["exclude_tmpdir_env_var"],
+            true
+        );
+        assert_eq!(config["sandbox_workspace_write"]["network_access"], false);
+    }
 
     #[test]
     fn path_order_wins_over_known_directories() {

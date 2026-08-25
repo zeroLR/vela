@@ -5,6 +5,7 @@
       "display_name": "Fake Local Agent",
       "command": "/absolute/path/to/fake-acp-harness",
       "adapter": "test-acp",
+      "enforced_session_mode": "safe",
       "version_arguments": ["--version"],
       "launch_arguments": ["--scenario", "ready"]
     }

@@ -22,12 +22,14 @@ struct CrossRuntimeIntegrationTests {
                 "id": "fake-swift",
                 "display_name": "Fake Swift Agent",
                 "command": fakeHarnessPath,
+                "enforced_session_mode": "safe",
                 "launch_arguments": ["--scenario", "ready"],
             ],
             [
                 "id": "fake-permission",
                 "display_name": "Fake Permission Agent",
                 "command": fakeHarnessPath,
+                "enforced_session_mode": "safe",
                 "launch_arguments": ["--scenario", "permission", "--permission-kind", "edit"],
             ],
         ]]
