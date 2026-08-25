@@ -87,6 +87,90 @@ pub struct PlanEntry {
     pub priority: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum PermissionCategory {
+    #[serde(rename = "filesystem.read")]
+    FilesystemRead,
+    #[serde(rename = "filesystem.write")]
+    FilesystemWrite,
+    #[serde(rename = "shell.execute")]
+    ShellExecute,
+    #[serde(rename = "network.open_url")]
+    NetworkOpenUrl,
+    #[serde(rename = "mcp.invoke")]
+    McpInvoke,
+    #[serde(rename = "other")]
+    Other,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PermissionOptionKind {
+    AllowOnce,
+    AllowAlways,
+    RejectOnce,
+    RejectAlways,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PermissionOption {
+    pub id: String,
+    pub name: String,
+    pub kind: PermissionOptionKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PermissionRequest {
+    pub id: String,
+    pub agent_id: String,
+    pub session_id: String,
+    pub run_id: String,
+    pub request_id: String,
+    pub tool_call_id: String,
+    pub category: PermissionCategory,
+    pub title: String,
+    pub target: Option<String>,
+    pub options: Vec<PermissionOption>,
+    pub created_at_ms: u64,
+    pub expires_at_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PermissionDecision {
+    AllowOnce,
+    AllowSession,
+    Deny,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PermissionResolutionStatus {
+    Allowed,
+    Denied,
+    TimedOut,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PermissionResolutionSource {
+    User,
+    SessionGrant,
+    Timeout,
+    Cancellation,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PermissionAuditRecord {
+    pub request: PermissionRequest,
+    pub decision: Option<PermissionDecision>,
+    pub status: PermissionResolutionStatus,
+    pub source: PermissionResolutionSource,
+    pub selected_option_id: Option<String>,
+    pub resolved_at_ms: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AgentEventPayload {
@@ -105,9 +189,10 @@ pub enum AgentEventPayload {
         status: String,
     },
     PermissionRequested {
-        tool_call_id: String,
-        title: Option<String>,
-        options: Vec<String>,
+        request: PermissionRequest,
+    },
+    PermissionResolved {
+        record: PermissionAuditRecord,
     },
     UsageUpdated {
         used: u64,

@@ -13,14 +13,19 @@ use agent_client_protocol::{
         v1::{
             CancelNotification, ContentBlock, InitializeRequest, NewSessionRequest, PromptRequest,
             RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
-            SessionNotification, TextContent,
+            SelectedPermissionOutcome, SessionNotification, TextContent,
         },
         ProtocolVersion,
     },
     AcpAgent, AcpAgentConfig, Agent, Client, ConnectionTo, Lines,
 };
-use domain::{AgentEvent, AgentEventPayload, PlanEntry, SessionDescriptor, SessionState};
+use domain::{
+    AgentEvent, AgentEventPayload, PermissionAuditRecord, PermissionCategory, PermissionDecision,
+    PermissionOption, PermissionOptionKind, PermissionRequest, PlanEntry, SessionDescriptor,
+    SessionState,
+};
 use futures::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
+use permission_broker::{PermissionBroker, PermissionIntent};
 use serde_json::Value;
 use tokio::sync::{broadcast, mpsc, oneshot, RwLock};
 
@@ -187,6 +192,7 @@ pub struct PromptAccepted {
 
 pub struct SessionManager {
     sessions: RwLock<HashMap<String, Arc<ManagedSession>>>,
+    permissions: Arc<PermissionBroker>,
     next_id: AtomicU64,
     initialize_timeout: Duration,
     prompt_timeout: Duration,
@@ -194,14 +200,27 @@ pub struct SessionManager {
 
 impl Default for SessionManager {
     fn default() -> Self {
-        Self::new(Duration::from_secs(10), Duration::from_secs(120))
+        Self::with_permission_timeout(
+            Duration::from_secs(10),
+            Duration::from_secs(120),
+            Duration::from_secs(60),
+        )
     }
 }
 
 impl SessionManager {
     pub fn new(initialize_timeout: Duration, prompt_timeout: Duration) -> Self {
+        Self::with_permission_timeout(initialize_timeout, prompt_timeout, Duration::from_secs(60))
+    }
+
+    pub fn with_permission_timeout(
+        initialize_timeout: Duration,
+        prompt_timeout: Duration,
+        permission_timeout: Duration,
+    ) -> Self {
         Self {
             sessions: RwLock::new(HashMap::new()),
+            permissions: Arc::new(PermissionBroker::new(permission_timeout)),
             next_id: AtomicU64::new(1),
             initialize_timeout,
             prompt_timeout,
@@ -223,6 +242,7 @@ impl SessionManager {
             cwd,
             self.initialize_timeout,
             self.prompt_timeout,
+            Arc::clone(&self.permissions),
         )
         .await?;
         let descriptor = session.descriptor().await;
@@ -263,7 +283,31 @@ impl SessionManager {
             .get(session_id)
             .cloned()
             .ok_or_else(|| format!("Unknown session: {session_id}"))?;
-        session.cancel(run_id.to_owned()).await
+        let cancelled = session.cancel(run_id.to_owned()).await?;
+        if cancelled {
+            self.permissions.cancel_run(session_id, run_id).await;
+        }
+        Ok(cancelled)
+    }
+
+    pub async fn decide_permission(
+        &self,
+        permission_id: &str,
+        session_id: &str,
+        run_id: &str,
+        decision: PermissionDecision,
+    ) -> Result<PermissionAuditRecord, String> {
+        self.permissions
+            .decide(permission_id, session_id, run_id, decision)
+            .await
+    }
+
+    pub async fn pending_permissions(&self, session_id: Option<&str>) -> Vec<PermissionRequest> {
+        self.permissions.pending(session_id).await
+    }
+
+    pub async fn permission_history(&self, session_id: Option<&str>) -> Vec<PermissionAuditRecord> {
+        self.permissions.history(session_id).await
     }
 }
 
@@ -286,6 +330,7 @@ impl ManagedSession {
         cwd: PathBuf,
         initialize_timeout: Duration,
         prompt_timeout: Duration,
+        permissions: Arc<PermissionBroker>,
     ) -> Result<Arc<Self>, String> {
         let (commands, command_rx) = mpsc::channel(8);
         let (events, _) = broadcast::channel(128);
@@ -300,17 +345,22 @@ impl ManagedSession {
         let task_active = Arc::clone(&active_run);
         let task_sequence = Arc::clone(&sequence);
         let task_id = id.clone();
+        let task_agent_id = agent_id.clone();
         let task_cwd = cwd.clone();
+        let task_permissions = Arc::clone(&permissions);
         tokio::spawn(async move {
             let context = SessionTaskContext {
                 session_id: task_id.clone(),
+                agent_id: task_agent_id,
                 events: task_events.clone(),
                 active_run: Arc::clone(&task_active),
                 sequence: Arc::clone(&task_sequence),
                 state: process_state,
                 prompt_timeout,
+                permissions: Arc::clone(&task_permissions),
             };
             let result = run_session_process(spec, task_cwd, command_rx, ready_tx, context).await;
+            task_permissions.cancel_session(&task_id).await;
             if let Err(message) = result {
                 *task_state.write().await = SessionState::Failed;
                 emit_active(
@@ -427,6 +477,7 @@ struct ReadySession {
     process_id: u32,
 }
 
+#[derive(Clone)]
 struct ActiveRun {
     run_id: String,
     request_id: String,
@@ -449,11 +500,13 @@ enum SessionCommand {
 #[derive(Clone)]
 struct SessionTaskContext {
     session_id: String,
+    agent_id: String,
     events: broadcast::Sender<AgentEvent>,
     active_run: Arc<StdMutex<Option<ActiveRun>>>,
     sequence: Arc<AtomicU64>,
     state: Arc<RwLock<SessionState>>,
     prompt_timeout: Duration,
+    permissions: Arc<PermissionBroker>,
 }
 
 async fn run_session_process(
@@ -528,6 +581,8 @@ where
     let permission_events = context.events.clone();
     let notification_session_id = context.session_id.clone();
     let permission_session_id = context.session_id.clone();
+    let permission_agent_id = context.agent_id.clone();
+    let permission_broker = Arc::clone(&context.permissions);
     Client
         .builder()
         .name("vela")
@@ -551,16 +606,60 @@ where
         .on_receive_request(
             async move |request: RequestPermissionRequest, responder, _cx| {
                 let value = serde_json::to_value(&request).unwrap_or(Value::Null);
+                let active = permission_active
+                    .lock()
+                    .expect("active run mutex poisoned")
+                    .clone();
+                let Some(active) = active else {
+                    return responder.respond(RequestPermissionResponse::new(
+                        RequestPermissionOutcome::Cancelled,
+                    ));
+                };
+                let (intent, options) = normalize_permission_request(
+                    &permission_agent_id,
+                    &permission_session_id,
+                    &active,
+                    &value,
+                );
+                let ticket = permission_broker.register(intent, options).await;
                 emit_active(
                     &permission_session_id,
                     &permission_active,
                     &permission_sequence,
                     &permission_events,
-                    permission_payload(&value),
+                    AgentEventPayload::PermissionRequested {
+                        request: ticket.request.clone(),
+                    },
                 );
-                responder.respond(RequestPermissionResponse::new(
+                let record = permission_broker.wait(ticket).await;
+                let outcome = record.selected_option_id.as_ref().map_or(
                     RequestPermissionOutcome::Cancelled,
-                ))
+                    |option_id| {
+                        RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(
+                            option_id.clone(),
+                        ))
+                    },
+                );
+                tracing::info!(
+                    component = "permission_broker",
+                    permission_id = record.request.id,
+                    agent_id = record.request.agent_id,
+                    session_id = record.request.session_id,
+                    run_id = record.request.run_id,
+                    request_id = record.request.request_id,
+                    category = ?record.request.category,
+                    status = ?record.status,
+                    source = ?record.source,
+                    "permission resolved"
+                );
+                emit_active(
+                    &permission_session_id,
+                    &permission_active,
+                    &permission_sequence,
+                    &permission_events,
+                    AgentEventPayload::PermissionResolved { record },
+                );
+                responder.respond(RequestPermissionResponse::new(outcome))
             },
             agent_client_protocol::on_receive_request!(),
         )
@@ -572,6 +671,8 @@ where
                 sequence,
                 state,
                 prompt_timeout,
+                permissions,
+                agent_id: _,
             } = context;
             connection
                 .send_request(InitializeRequest::new(ProtocolVersion::V1))
@@ -614,6 +715,7 @@ where
                         loop {
                             tokio::select! {
                                 result = &mut result_rx => {
+                                    permissions.cancel_run(&session_id, &run_id).await;
                                     let payload = match result {
                                         Ok(Ok(reason)) if reason == "Cancelled" => AgentEventPayload::Cancelled,
                                         Ok(Ok(reason)) => AgentEventPayload::Completed { stop_reason: reason },
@@ -632,6 +734,7 @@ where
                                     break;
                                 }
                                 _ = &mut timeout => {
+                                    permissions.cancel_run(&session_id, &run_id).await;
                                     connection.send_notification(CancelNotification::new(response.session_id.clone()))?;
                                     *state.write().await = SessionState::Failed;
                                     emit_active(&session_id, &active_run, &sequence, &events, AgentEventPayload::Failed {
@@ -645,6 +748,7 @@ where
                                     Some(SessionCommand::Cancel { run_id: target, reply }) => {
                                         let matches = target == run_id;
                                         if matches {
+                                            permissions.cancel_run(&session_id, &run_id).await;
                                             let result = connection
                                                 .send_notification(CancelNotification::new(response.session_id.clone()))
                                                 .map(|_| true)
@@ -658,6 +762,7 @@ where
                                         let _ = reply.send(Err("A prompt is already running".to_owned()));
                                     }
                                     Some(SessionCommand::Shutdown) | None => {
+                                        permissions.cancel_session(&session_id).await;
                                         let _ = connection.send_notification(CancelNotification::new(response.session_id.clone()));
                                         return Ok(());
                                     }
@@ -666,7 +771,10 @@ where
                         }
                     }
                     SessionCommand::Cancel { reply, .. } => { let _ = reply.send(Ok(false)); }
-                    SessionCommand::Shutdown => break,
+                    SessionCommand::Shutdown => {
+                        permissions.cancel_session(&session_id).await;
+                        break;
+                    },
                 }
             }
             Ok(())
@@ -797,30 +905,82 @@ fn normalize_session_update(value: &Value) -> Option<AgentEventPayload> {
     }
 }
 
-fn permission_payload(value: &Value) -> AgentEventPayload {
-    AgentEventPayload::PermissionRequested {
+fn normalize_permission_request(
+    agent_id: &str,
+    session_id: &str,
+    active: &ActiveRun,
+    value: &Value,
+) -> (PermissionIntent, Vec<PermissionOption>) {
+    let raw_input = value.pointer("/toolCall/rawInput");
+    let kind = value
+        .pointer("/toolCall/kind")
+        .and_then(Value::as_str)
+        .unwrap_or("other");
+    let is_mcp = raw_input.is_some_and(|input| {
+        input.get("mcpServer").is_some()
+            || (input.get("server").is_some() && input.get("tool").is_some())
+    });
+    let category = match kind {
+        "read" | "search" => PermissionCategory::FilesystemRead,
+        "edit" | "delete" | "move" => PermissionCategory::FilesystemWrite,
+        "execute" => PermissionCategory::ShellExecute,
+        "fetch" => PermissionCategory::NetworkOpenUrl,
+        _ if is_mcp => PermissionCategory::McpInvoke,
+        _ => PermissionCategory::Other,
+    };
+    let target = value
+        .pointer("/toolCall/locations/0/path")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .or_else(|| {
+            ["path", "command", "url", "uri", "tool"]
+                .into_iter()
+                .find_map(|field| {
+                    raw_input
+                        .and_then(|input| input.get(field))
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                })
+        });
+    let intent = PermissionIntent {
+        agent_id: agent_id.to_owned(),
+        session_id: session_id.to_owned(),
+        run_id: active.run_id.clone(),
+        request_id: active.request_id.clone(),
         tool_call_id: value
             .pointer("/toolCall/toolCallId")
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_owned(),
+        category,
         title: value
             .pointer("/toolCall/title")
             .and_then(Value::as_str)
-            .map(str::to_owned),
-        options: value
-            .get("options")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(|option| {
-                option
-                    .get("name")
-                    .and_then(Value::as_str)
-                    .map(str::to_owned)
+            .unwrap_or("Sensitive action")
+            .to_owned(),
+        target,
+    };
+    let options = value
+        .get("options")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|option| {
+            let kind = match option.get("kind").and_then(Value::as_str)? {
+                "allow_once" => PermissionOptionKind::AllowOnce,
+                "allow_always" => PermissionOptionKind::AllowAlways,
+                "reject_once" => PermissionOptionKind::RejectOnce,
+                "reject_always" => PermissionOptionKind::RejectAlways,
+                _ => return None,
+            };
+            Some(PermissionOption {
+                id: option.get("optionId")?.as_str()?.to_owned(),
+                name: option.get("name")?.as_str()?.to_owned(),
+                kind,
             })
-            .collect(),
-    }
+        })
+        .collect();
+    (intent, options)
 }
 
 fn string_field(value: &Value, field: &str) -> String {

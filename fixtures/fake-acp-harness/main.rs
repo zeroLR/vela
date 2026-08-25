@@ -50,12 +50,15 @@ fn main() {
         .as_deref()
         .map(Scenario::parse)
         .unwrap_or(Scenario::Ready);
+    let permission_kind =
+        option_value(&arguments, "--permission-kind").unwrap_or_else(|| "edit".to_owned());
     if let Some(path) = option_value(&arguments, "--pid-file").map(PathBuf::from) {
         fs::write(path, std::process::id().to_string()).expect("write pid file");
     }
 
     let stdin = io::stdin();
     let mut pending_prompt = None;
+    let mut permission_sequence = 0u64;
     for line in stdin.lock().lines() {
         let Ok(line) = line else {
             break;
@@ -72,15 +75,25 @@ fn main() {
                 "id": id,
                 "result": {"sessionId": "fake-session-1"}
             })),
-            Some("session/prompt") => respond_prompt(scenario, id, &mut pending_prompt),
+            Some("session/prompt") => respond_prompt(
+                scenario,
+                id,
+                &permission_kind,
+                &mut pending_prompt,
+                &mut permission_sequence,
+            ),
             Some("session/cancel") if !matches!(scenario, Scenario::PromptTimeout) => {
                 if let Some(prompt_id) = pending_prompt.take() {
                     prompt_response(prompt_id, "cancelled");
                 }
             }
-            _ if id == json!("permission-1") => {
+            _ if id.as_str().is_some_and(|id| id.starts_with("permission-")) => {
                 if let Some(prompt_id) = pending_prompt.take() {
-                    prompt_response(prompt_id, "cancelled");
+                    let selected = request
+                        .pointer("/result/outcome/outcome")
+                        .and_then(Value::as_str)
+                        == Some("selected");
+                    prompt_response(prompt_id, if selected { "end_turn" } else { "cancelled" });
                 }
             }
             _ => {}
@@ -136,7 +149,13 @@ fn respond_initialize(scenario: Scenario, id: Value) {
     }
 }
 
-fn respond_prompt(scenario: Scenario, id: Value, pending_prompt: &mut Option<Value>) {
+fn respond_prompt(
+    scenario: Scenario,
+    id: Value,
+    permission_kind: &str,
+    pending_prompt: &mut Option<Value>,
+    permission_sequence: &mut u64,
+) {
     match scenario {
         Scenario::Ready => {
             session_update(json!({
@@ -184,25 +203,65 @@ fn respond_prompt(scenario: Scenario, id: Value, pending_prompt: &mut Option<Val
         }
         Scenario::Permission => {
             *pending_prompt = Some(id);
-            write_json(json!({
-                "jsonrpc": "2.0",
-                "id": "permission-1",
-                "method": "session/request_permission",
-                "params": {
-                    "sessionId": "fake-session-1",
-                    "toolCall": {"toolCallId": "tool-2", "title": "Write file", "status": "pending"},
-                    "options": [
-                        {"optionId": "allow", "name": "Allow once", "kind": "allow_once"},
-                        {"optionId": "reject", "name": "Reject", "kind": "reject_once"}
-                    ]
-                }
-            }));
+            *permission_sequence += 1;
+            permission_request(*permission_sequence, permission_kind, "a");
         }
         Scenario::Timeout
         | Scenario::Invalid
         | Scenario::Unauthenticated
         | Scenario::Incompatible => {}
     }
+}
+
+fn permission_request(sequence: u64, kind: &str, target_suffix: &str) {
+    let (tool_kind, title, raw_input) = match kind {
+        "read" => (
+            "read",
+            "Read file",
+            json!({"path": format!("/tmp/vela-{target_suffix}.txt")}),
+        ),
+        "execute" => (
+            "execute",
+            "Run command",
+            json!({"command": format!("echo vela-{target_suffix}")}),
+        ),
+        "fetch" => (
+            "fetch",
+            "Open URL",
+            json!({"url": format!("https://example.com/{target_suffix}")}),
+        ),
+        "mcp" => (
+            "other",
+            "Invoke MCP tool",
+            json!({"mcpServer": "fake", "tool": format!("lookup-{target_suffix}")}),
+        ),
+        "other" => ("other", "Other action", json!({"name": target_suffix})),
+        _ => (
+            "edit",
+            "Write file",
+            json!({"path": format!("/tmp/vela-{target_suffix}.txt")}),
+        ),
+    };
+    write_json(json!({
+        "jsonrpc": "2.0",
+        "id": format!("permission-{sequence}"),
+        "method": "session/request_permission",
+        "params": {
+            "sessionId": "fake-session-1",
+            "toolCall": {
+                "toolCallId": format!("tool-{sequence}"),
+                "title": title,
+                "kind": tool_kind,
+                "status": "pending",
+                "rawInput": raw_input
+            },
+            "options": [
+                {"optionId": "allow-once", "name": "Allow once", "kind": "allow_once"},
+                {"optionId": "allow-always", "name": "Always allow", "kind": "allow_always"},
+                {"optionId": "reject-once", "name": "Reject", "kind": "reject_once"}
+            ]
+        }
+    }));
 }
 
 fn session_update(update: Value) {

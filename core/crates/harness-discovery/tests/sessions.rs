@@ -33,7 +33,11 @@ async fn collect_terminal(
 
 #[tokio::test]
 async fn fake_harness_covers_session_lifecycle_failures_and_recovery() {
-    let manager = SessionManager::new(Duration::from_secs(1), Duration::from_millis(150));
+    let manager = SessionManager::with_permission_timeout(
+        Duration::from_secs(1),
+        Duration::from_millis(150),
+        Duration::from_millis(50),
+    );
     let cwd = std::env::current_dir().unwrap();
 
     let success = manager

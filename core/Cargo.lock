@@ -10,6 +10,7 @@ dependencies = [
  "async-process",
  "domain",
  "futures",
+ "permission-broker",
  "rustix",
  "serde_json",
  "tokio",
@@ -844,6 +845,14 @@ dependencies = [
  "redox_syscall",
  "smallvec",
  "windows-link",
+]
+
+[[package]]
+name = "permission-broker"
+version = "0.1.0"
+dependencies = [
+ "domain",
+ "tokio",
 ]
 
 [[package]]

@@ -1,0 +1,9 @@
+[package]
+name = "permission-broker"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+domain.workspace = true
+tokio.workspace = true

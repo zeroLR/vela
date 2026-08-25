@@ -4,6 +4,7 @@ members = [
     "crates/assistant-ipc",
     "crates/domain",
     "crates/harness-discovery",
+    "crates/permission-broker",
     "crates/vela-core",
 ]
 resolver = "2"
@@ -21,6 +22,7 @@ async-process = "2.5.0"
 domain = { path = "crates/domain" }
 futures = "0.3.31"
 harness-discovery = { path = "crates/harness-discovery" }
+permission-broker = { path = "crates/permission-broker" }
 rustix = { version = "1.1.4", features = ["process"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
