@@ -82,6 +82,58 @@ pub struct SessionDescriptor {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceProvenance {
+    User,
+    Agent,
+    Tool,
+    Scheduler,
+    ExternalFilesystem,
+    System,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceReference {
+    pub id: String,
+    pub path: String,
+    pub added_at_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceEvent {
+    pub id: u64,
+    pub timestamp_ms: u64,
+    pub kind: String,
+    pub path: Option<String>,
+    pub provenance: WorkspaceProvenance,
+    pub correlation_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceSnapshot {
+    pub root: String,
+    pub created_at_ms: u64,
+    pub status_markdown: String,
+    pub inbox_markdown: String,
+    pub references: Vec<WorkspaceReference>,
+    pub indexed_file_count: u64,
+    pub last_event_id: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceContextFile {
+    pub path: String,
+    pub content: String,
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceContextSlice {
+    pub scope: String,
+    pub files: Vec<WorkspaceContextFile>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlanEntry {
     pub content: String,
     pub status: String,
