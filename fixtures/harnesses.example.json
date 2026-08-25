@@ -1,0 +1,12 @@
+{
+  "harnesses": [
+    {
+      "id": "fake-local",
+      "display_name": "Fake Local Agent",
+      "command": "/absolute/path/to/fake-acp-harness",
+      "adapter": "test-acp",
+      "version_arguments": ["--version"],
+      "launch_arguments": ["--scenario", "ready"]
+    }
+  ]
+}

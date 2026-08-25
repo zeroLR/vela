@@ -46,16 +46,16 @@ A diagnostics/settings screen lists discovered agents with executable path, dete
 
 ## Acceptance Criteria
 
-- [ ] Discovery finds supported tools installed via common macOS paths and PATH.
-- [ ] Missing executables produce `unavailable`, not an exception loop.
-- [ ] Version probing has a timeout and captures stderr/stdout diagnostics.
-- [ ] ACP initialization has a timeout and process cleanup on failure.
-- [ ] Capability output is represented with Vela-owned types.
-- [ ] CLI credentials are never parsed from private provider config stores.
-- [ ] Multiple agents can coexist in the registry.
-- [ ] User-defined ACP harness config can register a fake harness.
-- [ ] Discovery results can be refreshed without restarting Vela.
-- [ ] Unit/integration tests cover present, missing, incompatible, timeout, and invalid harness cases.
+- [x] Discovery finds supported tools installed via common macOS paths and PATH.
+- [x] Missing executables produce `unavailable`, not an exception loop.
+- [x] Version probing has a timeout and captures stderr/stdout diagnostics.
+- [x] ACP initialization has a timeout and process cleanup on failure.
+- [x] Capability output is represented with Vela-owned types.
+- [x] CLI credentials are never parsed from private provider config stores.
+- [x] Multiple agents can coexist in the registry.
+- [x] User-defined ACP harness config can register a fake harness.
+- [x] Discovery results can be refreshed without restarting Vela.
+- [x] Unit/integration tests cover present, missing, incompatible, timeout, and invalid harness cases.
 
 ## Validation Procedure
 

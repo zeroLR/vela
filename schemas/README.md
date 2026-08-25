@@ -15,4 +15,4 @@ Rules:
 - Breaking schema changes require an explicit major-version strategy.
 - Example fixtures should accompany schema changes.
 
-The first concrete contract is [`ipc-v1.md`](ipc-v1.md). It deliberately uses a small NDJSON envelope until later product requirements justify a heavier transport.
+The concrete contracts are [`ipc-v1.md`](ipc-v1.md) and [`harness-config-v1.md`](harness-config-v1.md). IPC deliberately uses a small NDJSON envelope until later product requirements justify a heavier transport.

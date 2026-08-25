@@ -15,7 +15,7 @@ Expected responsibilities:
 
 Do not place ACP/provider protocol logic here. The app consumes Vela-owned IPC/domain events only.
 
-The Phase 00/01 Swift package contains a native SwiftUI diagnostics app, an IPC client, and a `vela-core` process supervisor.
+The Phase 00–02 Swift package contains a native SwiftUI diagnostics app, an IPC client, and a `vela-core` process supervisor. The diagnostics screen refreshes the Core-owned ACP harness registry and displays normalized readiness, version, path, and capability data without provider-specific Swift logic.
 
 From the repository root:
 

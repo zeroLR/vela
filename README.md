@@ -54,7 +54,7 @@ The detailed, acceptance-test-driven execution plan lives in [`plan/`](plan/READ
 
 ## Development
 
-Phase 00/01 establish the Swift/Rust skeleton and the first local IPC vertical slice. The current debug app supervises `vela-core`, performs an IPC v1 handshake, renders a deterministic pushed event stream, supports cancellation, and exposes Core termination/restart behavior.
+Phase 00–02 establish the Swift/Rust skeleton, local IPC vertical slice, and ACP harness discovery. The debug app supervises `vela-core`, performs an IPC v1 handshake, renders a deterministic pushed event stream, and shows the refreshable Core-owned Claude/Codex/custom ACP adapter registry.
 
 ```bash
 cargo build --manifest-path core/Cargo.toml --workspace
@@ -62,8 +62,8 @@ scripts/check.sh
 VELA_CORE_PATH="$PWD/core/target/debug/vela-core" swift run --package-path app VelaApp
 ```
 
-See [`schemas/ipc-v1.md`](schemas/ipc-v1.md) for the wire contract and [`docs/IPC_LIFECYCLE.md`](docs/IPC_LIFECYCLE.md) for supervision/recovery semantics.
+See [`schemas/ipc-v1.md`](schemas/ipc-v1.md) for the wire contract, [`schemas/harness-config-v1.md`](schemas/harness-config-v1.md) for custom discovery entries, and [`docs/IPC_LIFECYCLE.md`](docs/IPC_LIFECYCLE.md) for supervision/recovery semantics.
 
 ## Status
 
-Phase 00/01 implementation and validation. ACP, workspace, capture, and avatar behavior remain intentionally out of scope until the IPC execution boundary passes its acceptance checks.
+Phase 00–02 implementation and validation. Discovery initializes ACP adapters and normalizes their advertised capabilities; real sessions/prompts, workspace, capture, and avatar behavior remain intentionally out of scope.
