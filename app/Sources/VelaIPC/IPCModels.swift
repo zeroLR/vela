@@ -297,6 +297,136 @@ public struct WorkspaceContextSlice: Equatable, Sendable {
     }
 }
 
+public enum CaptureSource: String, CaseIterable, Equatable, Sendable {
+    case text, speech
+}
+
+public enum CaptureIntent: String, CaseIterable, Equatable, Sendable {
+    case note, idea, todo
+    case workUpdate = "work_update"
+    case unknown
+}
+
+public enum CaptureStatus: String, Equatable, Sendable {
+    case completed, abandoned
+}
+
+public struct CaptureRecord: Identifiable, Equatable, Sendable {
+    public let id: String
+    public let source: CaptureSource
+    public let status: CaptureStatus
+    public let rawText: String
+    public let normalizedText: String
+    public let suggestedIntent: CaptureIntent
+    public let intent: CaptureIntent
+    public let title: String
+    public let routedPath: String?
+    public let startedAtMilliseconds: UInt64
+    public let completedAtMilliseconds: UInt64
+    public let correctionCount: UInt32
+
+    init?(value: JSONValue) {
+        guard
+            let object = value.objectValue,
+            let id = object["id"]?.stringValue,
+            let sourceValue = object["source"]?.stringValue,
+            let source = CaptureSource(rawValue: sourceValue),
+            let statusValue = object["status"]?.stringValue,
+            let status = CaptureStatus(rawValue: statusValue),
+            let rawText = object["raw_text"]?.stringValue,
+            let normalizedText = object["normalized_text"]?.stringValue,
+            let suggestedValue = object["suggested_intent"]?.stringValue,
+            let suggestedIntent = CaptureIntent(rawValue: suggestedValue),
+            let intentValue = object["intent"]?.stringValue,
+            let intent = CaptureIntent(rawValue: intentValue),
+            let title = object["title"]?.stringValue,
+            let startedValue = object["started_at_ms"]?.numberValue,
+            let startedAt = UInt64(exactly: startedValue),
+            let completedValue = object["completed_at_ms"]?.numberValue,
+            let completedAt = UInt64(exactly: completedValue),
+            let correctionValue = object["correction_count"]?.numberValue,
+            let correctionCount = UInt32(exactly: correctionValue)
+        else { return nil }
+        self.id = id
+        self.source = source
+        self.status = status
+        self.rawText = rawText
+        self.normalizedText = normalizedText
+        self.suggestedIntent = suggestedIntent
+        self.intent = intent
+        self.title = title
+        routedPath = object["routed_path"]?.stringValue
+        startedAtMilliseconds = startedAt
+        completedAtMilliseconds = completedAt
+        self.correctionCount = correctionCount
+    }
+}
+
+public struct CaptureMetrics: Equatable, Sendable {
+    public static let empty = CaptureMetrics(
+        totalCaptures: 0,
+        completedCaptures: 0,
+        abandonedCaptures: 0,
+        capturesSince: 0,
+        correctedCaptures: 0,
+        correctionRateBasisPoints: 0,
+        medianCompletionMilliseconds: nil
+    )
+
+    public let totalCaptures: UInt64
+    public let completedCaptures: UInt64
+    public let abandonedCaptures: UInt64
+    public let capturesSince: UInt64
+    public let correctedCaptures: UInt64
+    public let correctionRateBasisPoints: UInt32
+    public let medianCompletionMilliseconds: UInt64?
+
+    init(
+        totalCaptures: UInt64,
+        completedCaptures: UInt64,
+        abandonedCaptures: UInt64,
+        capturesSince: UInt64,
+        correctedCaptures: UInt64,
+        correctionRateBasisPoints: UInt32,
+        medianCompletionMilliseconds: UInt64?
+    ) {
+        self.totalCaptures = totalCaptures
+        self.completedCaptures = completedCaptures
+        self.abandonedCaptures = abandonedCaptures
+        self.capturesSince = capturesSince
+        self.correctedCaptures = correctedCaptures
+        self.correctionRateBasisPoints = correctionRateBasisPoints
+        self.medianCompletionMilliseconds = medianCompletionMilliseconds
+    }
+
+    init?(result: [String: JSONValue]) {
+        guard
+            let totalValue = result["total_captures"]?.numberValue,
+            let total = UInt64(exactly: totalValue),
+            let completedValue = result["completed_captures"]?.numberValue,
+            let completed = UInt64(exactly: completedValue),
+            let abandonedValue = result["abandoned_captures"]?.numberValue,
+            let abandoned = UInt64(exactly: abandonedValue),
+            let sinceValue = result["captures_since"]?.numberValue,
+            let since = UInt64(exactly: sinceValue),
+            let correctedValue = result["corrected_captures"]?.numberValue,
+            let corrected = UInt64(exactly: correctedValue),
+            let rateValue = result["correction_rate_basis_points"]?.numberValue,
+            let rate = UInt32(exactly: rateValue)
+        else { return nil }
+        self.init(
+            totalCaptures: total,
+            completedCaptures: completed,
+            abandonedCaptures: abandoned,
+            capturesSince: since,
+            correctedCaptures: corrected,
+            correctionRateBasisPoints: rate,
+            medianCompletionMilliseconds: result["median_completion_ms"]?.numberValue
+                .flatMap(UInt64.init(exactly:))
+        )
+    }
+}
+
 public enum SessionState: String, Equatable, Sendable {
     case starting, ready, running, completed, cancelled, failed
 }

@@ -129,6 +129,41 @@ struct CrossRuntimeIntegrationTests {
                 $0.kind == "workspace.file_changed" && $0.provenance == .user
             }
         })
+
+        let captureStartedAt = UInt64(Date().timeIntervalSince1970 * 1_000) - 25
+        #expect(client.submitCapture(
+            rawText: "  idea: simplify the quick panel  ",
+            source: .text,
+            startedAtMilliseconds: captureStartedAt
+        ) != nil)
+        #expect(await waitUntil { client.captures.first?.suggestedIntent == .idea })
+        guard let capture = client.captures.first else {
+            Issue.record("expected a completed capture")
+            return
+        }
+        #expect(capture.rawText == "  idea: simplify the quick panel  ")
+        #expect(client.correctCapture(id: capture.id, intent: .todo) != nil)
+        #expect(await waitUntil {
+            client.captures.first(where: { $0.id == capture.id })?.intent == .todo
+        })
+        #expect(client.abandonCapture(
+            rawText: "partial speech transcript",
+            source: .speech,
+            startedAtMilliseconds: captureStartedAt
+        ) != nil)
+        #expect(await waitUntil {
+            client.captureMetrics.totalCaptures == 2
+                && client.captureMetrics.abandonedCaptures == 1
+                && client.captureMetrics.correctedCaptures == 1
+        })
+        let correctedCapture = client.captures.first { $0.id == capture.id }
+        #expect(correctedCapture?.routedPath?.hasPrefix("tasks/") == true)
+        if let routedPath = correctedCapture?.routedPath {
+            #expect(FileManager.default.fileExists(
+                atPath: workspacePath + "/" + routedPath
+            ))
+        }
+
         guard let referenceID = client.workspace?.references.first?.id else {
             Issue.record("expected a workspace reference")
             return

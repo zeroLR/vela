@@ -27,6 +27,8 @@ public final class IPCClient: ObservableObject {
     @Published public private(set) var workspace: WorkspaceSnapshot?
     @Published public private(set) var workspaceEvents: [WorkspaceEvent] = []
     @Published public private(set) var workspaceContext: WorkspaceContextSlice?
+    @Published public private(set) var captures: [CaptureRecord] = []
+    @Published public private(set) var captureMetrics = CaptureMetrics.empty
 
     private var connection: NWConnection?
     private var receiveBuffer = Data()
@@ -69,6 +71,8 @@ public final class IPCClient: ObservableObject {
         workspace = nil
         workspaceEvents.removeAll()
         workspaceContext = nil
+        captures.removeAll()
+        captureMetrics = .empty
         state = reason == nil ? .disconnected : .degraded
         if let reason {
             appendDiagnostic(reason)
@@ -222,6 +226,67 @@ public final class IPCClient: ObservableObject {
     public func rebuildWorkspaceIndex() -> String? {
         guard workspace != nil else { return nil }
         return send(method: "workspace.rebuild")
+    }
+
+    @discardableResult
+    public func submitCapture(
+        rawText: String,
+        source: CaptureSource,
+        intent: CaptureIntent? = nil,
+        startedAtMilliseconds: UInt64
+    ) -> String? {
+        guard workspace != nil,
+              !rawText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        var params: [String: JSONValue] = [
+            "raw_text": .string(rawText),
+            "source": .string(source.rawValue),
+            "started_at_ms": .number(Double(startedAtMilliseconds)),
+        ]
+        if let intent {
+            params["intent"] = .string(intent.rawValue)
+        }
+        return send(method: "capture.create", params: params)
+    }
+
+    @discardableResult
+    public func abandonCapture(
+        rawText: String,
+        source: CaptureSource,
+        startedAtMilliseconds: UInt64
+    ) -> String? {
+        guard workspace != nil else { return nil }
+        return send(
+            method: "capture.abandon",
+            params: [
+                "raw_text": .string(rawText),
+                "source": .string(source.rawValue),
+                "started_at_ms": .number(Double(startedAtMilliseconds)),
+            ]
+        )
+    }
+
+    @discardableResult
+    public func correctCapture(id: String, intent: CaptureIntent) -> String? {
+        guard workspace != nil else { return nil }
+        return send(
+            method: "capture.correct",
+            params: ["capture_id": .string(id), "intent": .string(intent.rawValue)]
+        )
+    }
+
+    @discardableResult
+    public func listCaptures(limit: Int = 50) -> String? {
+        guard workspace != nil else { return nil }
+        return send(method: "capture.list", params: ["limit": .number(Double(limit))])
+    }
+
+    @discardableResult
+    public func loadCaptureMetrics(sinceMilliseconds: UInt64? = nil) -> String? {
+        guard workspace != nil else { return nil }
+        let since = sinceMilliseconds ?? UInt64(
+            Calendar.current.startOfDay(for: Date()).timeIntervalSince1970 * 1_000
+        )
+        return send(method: "capture.metrics", params: ["since_ms": .number(Double(since))])
     }
 
     public func clearSessionEvents() {
@@ -406,6 +471,10 @@ public final class IPCClient: ObservableObject {
             }
             workspace = snapshot
             appendDiagnostic("\(method) indexed \(snapshot.indexedFileCount) files")
+            if method == "workspace.open" {
+                _ = listCaptures()
+                _ = loadCaptureMetrics()
+            }
         } else if method == "workspace.events" {
             guard let values = message.result?["events"]?.arrayValue else {
                 appendDiagnostic("workspace.events returned an invalid result")
@@ -423,6 +492,37 @@ public final class IPCClient: ObservableObject {
                 return
             }
             workspaceContext = context
+        } else if ["capture.create", "capture.correct", "capture.abandon"].contains(method) {
+            guard let result = message.result,
+                  let capture = CaptureRecord(value: .object(result)) else {
+                appendDiagnostic("\(method) returned an invalid capture")
+                return
+            }
+            if let index = captures.firstIndex(where: { $0.id == capture.id }) {
+                captures[index] = capture
+            } else {
+                captures.insert(capture, at: 0)
+            }
+            appendDiagnostic("\(method) \(capture.intent.rawValue) [\(capture.id)]")
+            _ = refreshWorkspace()
+            _ = loadCaptureMetrics()
+        } else if method == "capture.list" {
+            guard let values = message.result?["captures"]?.arrayValue else {
+                appendDiagnostic("capture.list returned an invalid result")
+                return
+            }
+            let decoded = values.compactMap(CaptureRecord.init(value:))
+            guard decoded.count == values.count else {
+                appendDiagnostic("capture.list returned malformed captures")
+                return
+            }
+            captures = decoded
+        } else if method == "capture.metrics" {
+            guard let result = message.result, let metrics = CaptureMetrics(result: result) else {
+                appendDiagnostic("capture.metrics returned an invalid result")
+                return
+            }
+            captureMetrics = metrics
         } else if method == "session.create" {
             isCreatingSession = false
             guard let result = message.result, let descriptor = SessionDescriptor(result: result) else {

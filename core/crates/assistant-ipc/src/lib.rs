@@ -7,7 +7,10 @@ use std::{
 };
 
 use acp_runtime::SessionManager;
-use domain::{PermissionDecision, ProtocolVersion, WorkspaceProvenance};
+use capture_engine::{CaptureEngine, CaptureError};
+use domain::{
+    CaptureIntent, CaptureSource, PermissionDecision, ProtocolVersion, WorkspaceProvenance,
+};
 use harness_discovery::{DiscoveryOptions, DiscoveryService};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -326,6 +329,150 @@ async fn handle_connection(
                 }
                 .map(|context| json!(context));
                 write_workspace_result(&writer, &request.id, result).await?;
+            }
+            "capture.create" => {
+                let source = request
+                    .params
+                    .get("source")
+                    .and_then(Value::as_str)
+                    .map(parse_capture_source)
+                    .transpose();
+                let raw_text = request.params.get("raw_text").and_then(Value::as_str);
+                let intent = request
+                    .params
+                    .get("intent")
+                    .and_then(Value::as_str)
+                    .map(parse_capture_intent)
+                    .transpose();
+                let started_at_ms = request
+                    .params
+                    .get("started_at_ms")
+                    .and_then(Value::as_u64)
+                    .unwrap_or_else(now_ms);
+                let (Ok(Some(source)), Some(raw_text), Ok(intent)) = (source, raw_text, intent)
+                else {
+                    write_value(
+                        &writer,
+                        &error_response(
+                            Some(&request.id),
+                            "invalid_params",
+                            "source, raw_text, and a valid optional intent are required",
+                        ),
+                    )
+                    .await?;
+                    continue;
+                };
+                let result = match workspaces.active().await {
+                    Ok(workspace) => CaptureEngine::create(
+                        &workspace,
+                        source,
+                        raw_text,
+                        intent,
+                        started_at_ms,
+                        Some(&request.id),
+                    )
+                    .map(|record| json!(record)),
+                    Err(error) => Err(CaptureError(error.to_string())),
+                };
+                write_capture_result(&writer, &request.id, result).await?;
+            }
+            "capture.abandon" => {
+                let source = request
+                    .params
+                    .get("source")
+                    .and_then(Value::as_str)
+                    .map(parse_capture_source)
+                    .transpose();
+                let raw_text = request
+                    .params
+                    .get("raw_text")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                let started_at_ms = request
+                    .params
+                    .get("started_at_ms")
+                    .and_then(Value::as_u64)
+                    .unwrap_or_else(now_ms);
+                let Ok(Some(source)) = source else {
+                    write_value(
+                        &writer,
+                        &error_response(
+                            Some(&request.id),
+                            "invalid_params",
+                            "a valid source is required",
+                        ),
+                    )
+                    .await?;
+                    continue;
+                };
+                let result = match workspaces.active().await {
+                    Ok(workspace) => CaptureEngine::abandon(
+                        &workspace,
+                        source,
+                        raw_text,
+                        started_at_ms,
+                        Some(&request.id),
+                    )
+                    .map(|record| json!(record)),
+                    Err(error) => Err(CaptureError(error.to_string())),
+                };
+                write_capture_result(&writer, &request.id, result).await?;
+            }
+            "capture.correct" => {
+                let capture_id = request.params.get("capture_id").and_then(Value::as_str);
+                let intent = request
+                    .params
+                    .get("intent")
+                    .and_then(Value::as_str)
+                    .map(parse_capture_intent)
+                    .transpose();
+                let (Some(capture_id), Ok(Some(intent))) = (capture_id, intent) else {
+                    write_value(
+                        &writer,
+                        &error_response(
+                            Some(&request.id),
+                            "invalid_params",
+                            "capture_id and a valid intent are required",
+                        ),
+                    )
+                    .await?;
+                    continue;
+                };
+                let result = match workspaces.active().await {
+                    Ok(workspace) => {
+                        CaptureEngine::correct(&workspace, capture_id, intent, Some(&request.id))
+                            .map(|record| json!(record))
+                    }
+                    Err(error) => Err(CaptureError(error.to_string())),
+                };
+                write_capture_result(&writer, &request.id, result).await?;
+            }
+            "capture.list" => {
+                let limit = request
+                    .params
+                    .get("limit")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(50) as usize;
+                let result = match workspaces.active().await {
+                    Ok(workspace) => CaptureEngine::list(&workspace, limit)
+                        .map(|captures| json!({ "captures": captures })),
+                    Err(error) => Err(CaptureError(error.to_string())),
+                };
+                write_capture_result(&writer, &request.id, result).await?;
+            }
+            "capture.metrics" => {
+                let since_ms = request
+                    .params
+                    .get("since_ms")
+                    .and_then(Value::as_u64)
+                    .unwrap_or_default();
+                let result = match workspaces.active().await {
+                    Ok(workspace) => {
+                        CaptureEngine::metrics(&workspace, since_ms).map(|metrics| json!(metrics))
+                    }
+                    Err(error) => Err(CaptureError(error.to_string())),
+                };
+                write_capture_result(&writer, &request.id, result).await?;
             }
             "session.create" => {
                 let Some(agent_id) = request.params.get("agent_id").and_then(Value::as_str) else {
@@ -770,6 +917,44 @@ fn parse_workspace_provenance(value: &str) -> Result<WorkspaceProvenance, Worksp
             "Unsupported write provenance: {value}"
         ))),
     }
+}
+
+async fn write_capture_result(
+    writer: &SharedWriter,
+    request_id: &str,
+    result: Result<Value, CaptureError>,
+) -> io::Result<()> {
+    let response = match result {
+        Ok(value) => success_response(request_id, value),
+        Err(error) => error_response(Some(request_id), "capture_error", error.to_string()),
+    };
+    write_value(writer, &response).await
+}
+
+fn parse_capture_source(value: &str) -> Result<CaptureSource, CaptureError> {
+    match value {
+        "text" => Ok(CaptureSource::Text),
+        "speech" => Ok(CaptureSource::Speech),
+        _ => Err(CaptureError(format!("Unsupported capture source: {value}"))),
+    }
+}
+
+fn parse_capture_intent(value: &str) -> Result<CaptureIntent, CaptureError> {
+    match value {
+        "note" => Ok(CaptureIntent::Note),
+        "idea" => Ok(CaptureIntent::Idea),
+        "todo" => Ok(CaptureIntent::Todo),
+        "work_update" => Ok(CaptureIntent::WorkUpdate),
+        "unknown" => Ok(CaptureIntent::Unknown),
+        _ => Err(CaptureError(format!("Unsupported capture intent: {value}"))),
+    }
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or_default()
 }
 
 fn envelope() -> Value {

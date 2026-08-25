@@ -302,6 +302,92 @@ async fn workspace_files_references_context_and_events_cross_the_ipc_boundary() 
 }
 
 #[tokio::test]
+async fn capture_routing_correction_and_metrics_cross_the_ipc_boundary() {
+    let server = TestServer::start("capture").await;
+    let workspace_root = server.path.with_extension("capture-workspace");
+    let (mut reader, mut writer) = server.connect().await;
+
+    send(
+        &mut writer,
+        &request(
+            "workspace-open",
+            "workspace.open",
+            json!({ "root": workspace_root }),
+        ),
+    )
+    .await;
+    receive(&mut reader).await;
+
+    send(
+        &mut writer,
+        &request(
+            "capture-create",
+            "capture.create",
+            json!({
+                "source": "text",
+                "raw_text": "  idea: simplify capture  ",
+                "started_at_ms": 1,
+            }),
+        ),
+    )
+    .await;
+    let created = receive(&mut reader).await;
+    let capture_id = created["result"]["id"].as_str().unwrap();
+    assert_eq!(created["result"]["raw_text"], "  idea: simplify capture  ");
+    assert_eq!(created["result"]["suggested_intent"], "idea");
+    assert_eq!(created["result"]["intent"], "idea");
+    let first_route = created["result"]["routed_path"].as_str().unwrap();
+    assert!(workspace_root.join(first_route).is_file());
+
+    send(
+        &mut writer,
+        &request(
+            "capture-correct",
+            "capture.correct",
+            json!({ "capture_id": capture_id, "intent": "todo" }),
+        ),
+    )
+    .await;
+    let corrected = receive(&mut reader).await;
+    assert_eq!(corrected["result"]["intent"], "todo");
+    assert_eq!(corrected["result"]["suggested_intent"], "idea");
+    assert_eq!(corrected["result"]["correction_count"], 1);
+    assert!(!workspace_root.join(first_route).exists());
+
+    send(
+        &mut writer,
+        &request(
+            "capture-abandon",
+            "capture.abandon",
+            json!({
+                "source": "speech",
+                "raw_text": "partial transcript",
+                "started_at_ms": 1,
+            }),
+        ),
+    )
+    .await;
+    assert_eq!(receive(&mut reader).await["result"]["status"], "abandoned");
+
+    send(
+        &mut writer,
+        &request(
+            "capture-metrics",
+            "capture.metrics",
+            json!({ "since_ms": 0 }),
+        ),
+    )
+    .await;
+    let metrics = receive(&mut reader).await;
+    assert_eq!(metrics["result"]["total_captures"], 2);
+    assert_eq!(metrics["result"]["completed_captures"], 1);
+    assert_eq!(metrics["result"]["abandoned_captures"], 1);
+    assert_eq!(metrics["result"]["correction_rate_basis_points"], 10_000);
+
+    std::fs::remove_dir_all(workspace_root).unwrap();
+}
+
+#[tokio::test]
 async fn permission_queries_are_structured_and_stale_decisions_are_rejected() {
     let server = TestServer::start("permissions").await;
     let (mut reader, mut writer) = server.connect().await;

@@ -85,6 +85,32 @@ struct IPCModelsTests {
         #expect(context.files.first?.truncated == false)
     }
 
+    @Test("capture records retain raw routing and correction fields")
+    func captureModels() throws {
+        let message = try JSONDecoder().decode(
+            IPCMessage.self,
+            from: Data(#"{"version":{"major":1,"minor":0},"id":"capture-1","result":{"id":"capture-42","source":"speech","status":"completed","raw_text":"  todo: ship  ","normalized_text":"todo: ship","suggested_intent":"todo","intent":"note","title":"todo: ship","routed_path":"notes/capture-42.md","started_at_ms":40,"completed_at_ms":50,"correction_count":1}}"#.utf8)
+        )
+        let capture = try #require(message.result.flatMap { CaptureRecord(value: .object($0)) })
+        #expect(capture.source == .speech)
+        #expect(capture.rawText == "  todo: ship  ")
+        #expect(capture.suggestedIntent == .todo)
+        #expect(capture.intent == .note)
+        #expect(capture.correctionCount == 1)
+
+        let metrics = try #require(CaptureMetrics(result: [
+            "total_captures": .number(3),
+            "completed_captures": .number(2),
+            "abandoned_captures": .number(1),
+            "captures_since": .number(3),
+            "corrected_captures": .number(1),
+            "correction_rate_basis_points": .number(5_000),
+            "median_completion_ms": .number(20),
+        ]))
+        #expect(metrics.correctionRateBasisPoints == 5_000)
+        #expect(metrics.medianCompletionMilliseconds == 20)
+    }
+
     @Test("normalized agent events decode without ACP wire types")
     func agentEvent() throws {
         let message = try JSONDecoder().decode(

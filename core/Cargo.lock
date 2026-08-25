@@ -87,6 +87,7 @@ name = "assistant-ipc"
 version = "0.1.0"
 dependencies = [
  "acp-runtime",
+ "capture-engine",
  "domain",
  "harness-discovery",
  "serde",
