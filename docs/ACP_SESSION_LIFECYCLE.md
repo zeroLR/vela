@@ -38,4 +38,11 @@ The deterministic suite proves ordering, one-terminal-event behavior, cleanup, c
 
 ## Real adapter note
 
-On the Phase 03 validation machine, the Codex and Claude provider CLIs are installed, but `codex-acp` and `claude-agent-acp` are not. Vela therefore reports both definitions as unavailable and does not auto-install them. A harmless real prompt smoke test remains conditional on a user-installed adapter.
+Real adapter smoke tests passed on 2026-08-25:
+
+| Adapter | Provider CLI | Discovery | Normalized trace | Result |
+|---|---|---|---|---|
+| `codex-acp` 1.6.2 | `codex-cli` 0.149.1 | `ready` | text deltas, usage, completed | `VELA_SMOKE_OK`, `EndTurn` |
+| `claude-agent-acp` 0.70.0 | Claude Code 2.1.245 | `ready` | usage, text deltas, completed | `VELA_SMOKE_OK`, `EndTurn` |
+
+Each adapter was launched through Vela discovery and `session.create`, accepted a prompt through `session.prompt`, returned an ACP request ID, and emitted exactly one normalized terminal event. The harmless prompt explicitly prohibited tools and file changes; neither run requested permission, invoked a tool, or modified the workspace. Test processes and the temporary IPC socket were removed after validation.

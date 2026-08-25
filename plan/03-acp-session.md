@@ -61,7 +61,7 @@ From the macOS app, a user can select a discovered agent, create a session, subm
 - [x] Unsupported capabilities are handled explicitly rather than silently assumed.
 - [x] Session IDs, process IDs, and request correlation IDs are present in diagnostics.
 - [x] Fake harness integration tests cover success, cancel, unexpected exit, malformed event, and timeout.
-- [x] At least one real Claude or Codex ACP path is manually verified if available locally. (No ACP adapter was installed on the validation machine; provider CLIs alone remain unavailable by design.)
+- [x] At least one real Claude or Codex ACP path is manually verified if available locally. (`codex-acp` 1.6.2 and `claude-agent-acp` 0.70.0 both passed discovery, session creation, prompt streaming, and terminal-state validation on 2026-08-25.)
 
 ## Validation Procedure
 

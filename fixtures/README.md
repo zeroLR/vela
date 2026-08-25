@@ -12,6 +12,6 @@ Expected fixtures:
 - workspace mutation cases
 - schema examples
 
-The fake ACP harness is a first-class test dependency. It supports discovery failures plus Phase 03 `ready`, `cancel`, `permission`, `prompt-timeout`, `unexpected-exit`, and `malformed-event` session scenarios. Tests cover streaming normalization, cancellation, PID/process cleanup, terminal invariants, and failure recovery before real Claude/Codex smoke tests are considered.
+The fake ACP harness is a first-class test dependency. It supports discovery failures plus Phase 03 `ready`, `cancel`, `permission`, `prompt-timeout`, `unexpected-exit`, and `malformed-event` session scenarios. Tests cover streaming normalization, cancellation, PID/process cleanup, terminal invariants, and failure recovery; real Claude and Codex smoke tests then validate adapter compatibility without replacing deterministic coverage.
 
 `harnesses.example.json` documents the optional user-defined harness registry entry.

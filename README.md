@@ -66,4 +66,4 @@ See [`schemas/ipc-v1.md`](schemas/ipc-v1.md) for the wire contract, [`schemas/ha
 
 ## Status
 
-Phase 00–03 implementation and validation. Fake ACP sessions are deterministic end to end; real adapter verification remains conditional on a locally installed adapter. Permission decisions, workspace, capture, and avatar behavior remain intentionally out of scope.
+Phase 00–03 implementation and validation. Fake ACP sessions are deterministic end to end, and real `codex-acp` and `claude-agent-acp` session paths have passed smoke validation. Permission decisions, workspace, capture, and avatar behavior remain intentionally out of scope.
