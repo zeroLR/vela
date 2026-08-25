@@ -8,6 +8,9 @@ struct DiagnosticsView: View {
     @State private var selectedAgentID = ""
     @State private var sessionCWD = FileManager.default.currentDirectoryPath
     @State private var promptText = "Summarize this workspace briefly."
+    @State private var workspaceRoot = FileManager.default.currentDirectoryPath
+    @State private var workspaceStatus = ""
+    @State private var referencePath = ""
 
     init(environment: AppEnvironment) {
         self.environment = environment
@@ -53,6 +56,7 @@ struct DiagnosticsView: View {
                     .disabled(supervisor.state != .running)
             }
 
+            workspacePanel
             agentList
             sessionPanel
             permissionPanel
@@ -63,10 +67,15 @@ struct DiagnosticsView: View {
             }
         }
         .padding(20)
-        .frame(minWidth: 900, minHeight: 1080)
+        .frame(minWidth: 900, minHeight: 1280)
         .onChange(of: client.agentRegistry.agents) { _, agents in
             if !agents.contains(where: { $0.id == selectedAgentID && $0.status == .ready }) {
                 selectedAgentID = agents.first(where: { $0.status == .ready })?.id ?? ""
+            }
+        }
+        .onChange(of: client.workspace?.statusMarkdown) { _, status in
+            if let status {
+                workspaceStatus = status
             }
         }
     }
@@ -97,6 +106,93 @@ struct DiagnosticsView: View {
                 Spacer()
                 Button("Clear") { client.clearEvents() }.buttonStyle(.link)
             }
+        }
+    }
+
+    private var workspacePanel: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    TextField("Workspace root", text: $workspaceRoot)
+                    Button("Open / Create") { client.openWorkspace(root: workspaceRoot) }
+                        .disabled(client.state != .ready)
+                    Button("Reconcile") { client.refreshWorkspace() }
+                        .disabled(client.workspace == nil)
+                    Button("Rebuild Index") { client.rebuildWorkspaceIndex() }
+                        .disabled(client.workspace == nil)
+                }
+                if let workspace = client.workspace {
+                    Text("\(workspace.root) · \(workspace.indexedFileCount) indexed files · event \(workspace.lastEventID.map(String.init) ?? "none")")
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                    HStack(alignment: .top, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("STATUS.md").font(.caption.bold())
+                            TextEditor(text: $workspaceStatus)
+                                .font(.system(.caption, design: .monospaced))
+                                .frame(minHeight: 86)
+                                .overlay(RoundedRectangle(cornerRadius: 4).stroke(.quaternary))
+                            HStack {
+                                Button("Save Status") {
+                                    client.writeWorkspaceFile(
+                                        path: "STATUS.md",
+                                        content: workspaceStatus
+                                    )
+                                }
+                                Button("Load Context") { client.loadStatusContext() }
+                                Button("Load Events") { client.loadWorkspaceEvents() }
+                                if let context = client.workspaceContext {
+                                    Text("\(context.files.count) context files")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("References").font(.caption.bold())
+                            HStack {
+                                TextField("External directory", text: $referencePath)
+                                Button("Add") {
+                                    if client.addWorkspaceReference(path: referencePath) != nil {
+                                        referencePath = ""
+                                    }
+                                }
+                                .disabled(referencePath.isEmpty)
+                            }
+                            ForEach(workspace.references) { reference in
+                                HStack {
+                                    Text(reference.path)
+                                        .font(.system(.caption, design: .monospaced))
+                                        .lineLimit(1)
+                                        .textSelection(.enabled)
+                                    Spacer()
+                                    Button("Remove", role: .destructive) {
+                                        client.removeWorkspaceReference(id: reference.id)
+                                    }
+                                    .buttonStyle(.link)
+                                }
+                            }
+                            if workspace.references.isEmpty {
+                                Text("No external references")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            if !client.workspaceEvents.isEmpty {
+                                Text("\(client.workspaceEvents.count) recent events loaded")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                } else {
+                    Text("Open a directory to create or resume its human-readable workspace.")
+                        .foregroundStyle(.secondary)
+                }
+            }
+        } label: {
+            Text("Local-First Workspace")
         }
     }
 

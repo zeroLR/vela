@@ -198,6 +198,110 @@ async fn agent_registry_can_be_listed_and_explicitly_refreshed() {
 }
 
 #[tokio::test]
+async fn workspace_files_references_context_and_events_cross_the_ipc_boundary() {
+    let server = TestServer::start("workspace").await;
+    let workspace_root = server.path.with_extension("workspace");
+    let reference_root = server.path.with_extension("reference");
+    std::fs::create_dir_all(&reference_root).unwrap();
+    std::fs::write(reference_root.join("README.md"), "external truth\n").unwrap();
+    let (mut reader, mut writer) = server.connect().await;
+
+    send(
+        &mut writer,
+        &request(
+            "workspace-open",
+            "workspace.open",
+            json!({ "root": workspace_root }),
+        ),
+    )
+    .await;
+    let opened = receive(&mut reader).await;
+    assert_eq!(opened["result"]["references"], json!([]));
+    assert!(workspace_root.join("STATUS.md").is_file());
+
+    send(
+        &mut writer,
+        &request(
+            "workspace-write",
+            "workspace.write",
+            json!({
+                "path": "STATUS.md",
+                "content": "# Status\n\nIPC vertical slice\n",
+                "provenance": "agent",
+            }),
+        ),
+    )
+    .await;
+    assert_eq!(
+        receive(&mut reader).await["result"]["status_markdown"],
+        "# Status\n\nIPC vertical slice\n"
+    );
+
+    send(
+        &mut writer,
+        &request(
+            "reference-add",
+            "workspace.reference.add",
+            json!({ "path": reference_root }),
+        ),
+    )
+    .await;
+    let added = receive(&mut reader).await;
+    assert_eq!(added["result"]["references"][0]["id"], "reference-1");
+
+    send(
+        &mut writer,
+        &request(
+            "context-read",
+            "workspace.context",
+            json!({
+                "scope": "reference_path",
+                "reference_id": "reference-1",
+                "path": "README.md",
+            }),
+        ),
+    )
+    .await;
+    assert_eq!(
+        receive(&mut reader).await["result"]["files"][0]["content"],
+        "external truth\n"
+    );
+
+    send(
+        &mut writer,
+        &request("events", "workspace.events", json!({ "limit": 20 })),
+    )
+    .await;
+    let events = receive(&mut reader).await;
+    assert!(events["result"]["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|event| event["correlation_id"] == "workspace-write"));
+
+    send(
+        &mut writer,
+        &request(
+            "reference-remove",
+            "workspace.reference.remove",
+            json!({ "reference_id": "reference-1" }),
+        ),
+    )
+    .await;
+    assert_eq!(
+        receive(&mut reader).await["result"]["references"],
+        json!([])
+    );
+    assert_eq!(
+        std::fs::read_to_string(reference_root.join("README.md")).unwrap(),
+        "external truth\n"
+    );
+
+    std::fs::remove_dir_all(workspace_root).unwrap();
+    std::fs::remove_dir_all(reference_root).unwrap();
+}
+
+#[tokio::test]
 async fn permission_queries_are_structured_and_stale_decisions_are_rejected() {
     let server = TestServer::start("permissions").await;
     let (mut reader, mut writer) = server.connect().await;

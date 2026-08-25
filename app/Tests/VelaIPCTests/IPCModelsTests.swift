@@ -62,6 +62,29 @@ struct IPCModelsTests {
         #expect(snapshot.agents[0].capabilities == ["prompt.image", "session.list"])
     }
 
+    @Test("workspace snapshots and bounded context decode without SQLite details")
+    func workspaceModels() throws {
+        let snapshotMessage = try JSONDecoder().decode(
+            IPCMessage.self,
+            from: Data(##"{"version":{"major":1,"minor":0},"id":"workspace-1","result":{"root":"/tmp/vela","created_at_ms":42,"status_markdown":"# Status\n","inbox_markdown":"# Inbox\n","references":[{"id":"reference-1","path":"/tmp/source","added_at_ms":43}],"indexed_file_count":7,"last_event_id":9}}"##.utf8)
+        )
+        let snapshot = try #require(snapshotMessage.result.flatMap(WorkspaceSnapshot.init(result:)))
+        #expect(snapshot.root == "/tmp/vela")
+        #expect(snapshot.references.first?.id == "reference-1")
+        #expect(snapshot.indexedFileCount == 7)
+
+        let contextMessage = try JSONDecoder().decode(
+            IPCMessage.self,
+            from: Data(##"{"version":{"major":1,"minor":0},"id":"context-1","result":{"scope":"status","files":[{"path":"STATUS.md","content":"# Status\n","truncated":false}]}}"##.utf8)
+        )
+        let context = try #require(contextMessage.result.flatMap(WorkspaceContextSlice.init(result:)))
+        #expect(context.scope == "status")
+        #expect(context.files.count == 1)
+        #expect(context.files.first?.path == "STATUS.md")
+        #expect(context.files.first?.content == "# Status\n")
+        #expect(context.files.first?.truncated == false)
+    }
+
     @Test("normalized agent events decode without ACP wire types")
     func agentEvent() throws {
         let message = try JSONDecoder().decode(

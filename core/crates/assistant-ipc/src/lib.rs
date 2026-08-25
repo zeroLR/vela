@@ -7,7 +7,7 @@ use std::{
 };
 
 use acp_runtime::SessionManager;
-use domain::{PermissionDecision, ProtocolVersion};
+use domain::{PermissionDecision, ProtocolVersion, WorkspaceProvenance};
 use harness_discovery::{DiscoveryOptions, DiscoveryService};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -17,6 +17,7 @@ use tokio::{
     sync::{watch, Mutex},
     task::JoinSet,
 };
+use workspace_engine::{WorkspaceError, WorkspaceService};
 
 type SharedWriter = Arc<Mutex<OwnedWriteHalf>>;
 type ActiveStreams = Arc<Mutex<HashMap<String, watch::Sender<bool>>>>;
@@ -51,6 +52,21 @@ pub async fn serve_with_services(
     discovery: Arc<DiscoveryService>,
     sessions: Arc<SessionManager>,
 ) -> io::Result<()> {
+    serve_with_all_services(
+        socket_path,
+        discovery,
+        sessions,
+        Arc::new(WorkspaceService::default()),
+    )
+    .await
+}
+
+pub async fn serve_with_all_services(
+    socket_path: impl AsRef<Path>,
+    discovery: Arc<DiscoveryService>,
+    sessions: Arc<SessionManager>,
+    workspaces: Arc<WorkspaceService>,
+) -> io::Result<()> {
     let socket_path = socket_path.as_ref();
     if socket_path.exists() {
         std::fs::remove_file(socket_path)?;
@@ -67,8 +83,9 @@ pub async fn serve_with_services(
         tracing::info!(component = "ipc", "client connected");
         let discovery = Arc::clone(&discovery);
         let sessions = Arc::clone(&sessions);
+        let workspaces = Arc::clone(&workspaces);
         tokio::spawn(async move {
-            if let Err(error) = handle_connection(stream, discovery, sessions).await {
+            if let Err(error) = handle_connection(stream, discovery, sessions, workspaces).await {
                 tracing::warn!(component = "ipc", error = %error, "client connection ended");
             }
         });
@@ -79,6 +96,7 @@ async fn handle_connection(
     stream: UnixStream,
     discovery: Arc<DiscoveryService>,
     sessions: Arc<SessionManager>,
+    workspaces: Arc<WorkspaceService>,
 ) -> io::Result<()> {
     let (read_half, write_half) = stream.into_split();
     let writer = Arc::new(Mutex::new(write_half));
@@ -145,6 +163,169 @@ async fn handle_connection(
             "agents.refresh" => {
                 let snapshot = discovery.refresh().await;
                 write_value(&writer, &success_response(&request.id, json!(snapshot))).await?;
+            }
+            "workspace.open" => {
+                let Some(root) = request.params.get("root").and_then(Value::as_str) else {
+                    write_value(
+                        &writer,
+                        &error_response(Some(&request.id), "invalid_params", "root is required"),
+                    )
+                    .await?;
+                    continue;
+                };
+                write_workspace_result(
+                    &writer,
+                    &request.id,
+                    workspaces.open(root).await.map(|snapshot| json!(snapshot)),
+                )
+                .await?;
+            }
+            "workspace.status" => {
+                let result = match workspaces.active().await {
+                    Ok(workspace) => workspace.snapshot().map(|snapshot| json!(snapshot)),
+                    Err(error) => Err(error),
+                };
+                write_workspace_result(&writer, &request.id, result).await?;
+            }
+            "workspace.refresh" => {
+                let result = match workspaces.active().await {
+                    Ok(workspace) => workspace
+                        .reconcile(WorkspaceProvenance::ExternalFilesystem, Some(&request.id))
+                        .and_then(|_| workspace.snapshot())
+                        .map(|snapshot| json!(snapshot)),
+                    Err(error) => Err(error),
+                };
+                write_workspace_result(&writer, &request.id, result).await?;
+            }
+            "workspace.write" => {
+                let path = request.params.get("path").and_then(Value::as_str);
+                let content = request.params.get("content").and_then(Value::as_str);
+                let provenance = request
+                    .params
+                    .get("provenance")
+                    .and_then(Value::as_str)
+                    .map(parse_workspace_provenance)
+                    .transpose();
+                let (Some(path), Some(content), Ok(provenance)) = (path, content, provenance)
+                else {
+                    write_value(
+                        &writer,
+                        &error_response(
+                            Some(&request.id),
+                            "invalid_params",
+                            "path, content, and a valid provenance are required",
+                        ),
+                    )
+                    .await?;
+                    continue;
+                };
+                let result = match workspaces.active().await {
+                    Ok(workspace) => workspace
+                        .write_file(
+                            path,
+                            content,
+                            provenance.unwrap_or(WorkspaceProvenance::User),
+                            Some(&request.id),
+                        )
+                        .map(|snapshot| json!(snapshot)),
+                    Err(error) => Err(error),
+                };
+                write_workspace_result(&writer, &request.id, result).await?;
+            }
+            "workspace.reference.add" => {
+                let Some(path) = request.params.get("path").and_then(Value::as_str) else {
+                    write_value(
+                        &writer,
+                        &error_response(Some(&request.id), "invalid_params", "path is required"),
+                    )
+                    .await?;
+                    continue;
+                };
+                let result = match workspaces.active().await {
+                    Ok(workspace) => workspace
+                        .add_reference(path, Some(&request.id))
+                        .map(|snapshot| json!(snapshot)),
+                    Err(error) => Err(error),
+                };
+                write_workspace_result(&writer, &request.id, result).await?;
+            }
+            "workspace.reference.remove" => {
+                let Some(reference_id) = request.params.get("reference_id").and_then(Value::as_str)
+                else {
+                    write_value(
+                        &writer,
+                        &error_response(
+                            Some(&request.id),
+                            "invalid_params",
+                            "reference_id is required",
+                        ),
+                    )
+                    .await?;
+                    continue;
+                };
+                let result = match workspaces.active().await {
+                    Ok(workspace) => workspace
+                        .remove_reference(reference_id, Some(&request.id))
+                        .map(|snapshot| json!(snapshot)),
+                    Err(error) => Err(error),
+                };
+                write_workspace_result(&writer, &request.id, result).await?;
+            }
+            "workspace.events" => {
+                let limit = request
+                    .params
+                    .get("limit")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(50);
+                let result = match workspaces.active().await {
+                    Ok(workspace) => workspace
+                        .events(limit)
+                        .map(|events| json!({ "events": events })),
+                    Err(error) => Err(error),
+                };
+                write_workspace_result(&writer, &request.id, result).await?;
+            }
+            "workspace.rebuild" => {
+                let result = match workspaces.active().await {
+                    Ok(workspace) => workspace.rebuild_index().map(|snapshot| json!(snapshot)),
+                    Err(error) => Err(error),
+                };
+                write_workspace_result(&writer, &request.id, result).await?;
+            }
+            "workspace.context" => {
+                let scope = request.params.get("scope").and_then(Value::as_str);
+                let result = match (workspaces.active().await, scope) {
+                    (Ok(workspace), Some("status")) => workspace.context_status(),
+                    (Ok(workspace), Some("workspace_path")) => request
+                        .params
+                        .get("path")
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| WorkspaceError("path is required".to_owned()))
+                        .and_then(|path| workspace.context_workspace_path(path)),
+                    (Ok(workspace), Some("reference_path")) => {
+                        let reference_id = request
+                            .params
+                            .get("reference_id")
+                            .and_then(Value::as_str)
+                            .ok_or_else(|| WorkspaceError("reference_id is required".to_owned()));
+                        let path = request
+                            .params
+                            .get("path")
+                            .and_then(Value::as_str)
+                            .ok_or_else(|| WorkspaceError("path is required".to_owned()));
+                        reference_id.and_then(|reference_id| {
+                            path.and_then(|path| {
+                                workspace.context_reference_path(reference_id, path)
+                            })
+                        })
+                    }
+                    (Ok(_), _) => Err(WorkspaceError(
+                        "scope must be status, workspace_path, or reference_path".to_owned(),
+                    )),
+                    (Err(error), _) => Err(error),
+                }
+                .map(|context| json!(context));
+                write_workspace_result(&writer, &request.id, result).await?;
             }
             "session.create" => {
                 let Some(agent_id) = request.params.get("agent_id").and_then(Value::as_str) else {
@@ -565,6 +746,30 @@ async fn write_value(writer: &SharedWriter, value: &Value) -> io::Result<()> {
     let mut bytes = serde_json::to_vec(value).map_err(io::Error::other)?;
     bytes.push(b'\n');
     writer.lock().await.write_all(&bytes).await
+}
+
+async fn write_workspace_result(
+    writer: &SharedWriter,
+    request_id: &str,
+    result: Result<Value, WorkspaceError>,
+) -> io::Result<()> {
+    let response = match result {
+        Ok(value) => success_response(request_id, value),
+        Err(error) => error_response(Some(request_id), "workspace_error", error.to_string()),
+    };
+    write_value(writer, &response).await
+}
+
+fn parse_workspace_provenance(value: &str) -> Result<WorkspaceProvenance, WorkspaceError> {
+    match value {
+        "user" => Ok(WorkspaceProvenance::User),
+        "agent" => Ok(WorkspaceProvenance::Agent),
+        "tool" => Ok(WorkspaceProvenance::Tool),
+        "scheduler" => Ok(WorkspaceProvenance::Scheduler),
+        _ => Err(WorkspaceError(format!(
+            "Unsupported write provenance: {value}"
+        ))),
+    }
 }
 
 fn envelope() -> Value {

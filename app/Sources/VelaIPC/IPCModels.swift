@@ -178,6 +178,125 @@ public struct AgentRegistrySnapshot: Equatable, Sendable {
     }
 }
 
+public enum WorkspaceProvenance: String, Equatable, Sendable {
+    case user, agent, tool, scheduler
+    case externalFilesystem = "external_filesystem"
+    case system
+}
+
+public struct WorkspaceReference: Identifiable, Equatable, Sendable {
+    public let id: String
+    public let path: String
+    public let addedAtMilliseconds: UInt64
+
+    init?(value: JSONValue) {
+        guard
+            let object = value.objectValue,
+            let id = object["id"]?.stringValue,
+            let path = object["path"]?.stringValue,
+            let addedValue = object["added_at_ms"]?.numberValue,
+            let addedAt = UInt64(exactly: addedValue)
+        else { return nil }
+        self.id = id
+        self.path = path
+        addedAtMilliseconds = addedAt
+    }
+}
+
+public struct WorkspaceSnapshot: Equatable, Sendable {
+    public let root: String
+    public let createdAtMilliseconds: UInt64
+    public let statusMarkdown: String
+    public let inboxMarkdown: String
+    public let references: [WorkspaceReference]
+    public let indexedFileCount: UInt64
+    public let lastEventID: UInt64?
+
+    init?(result: [String: JSONValue]) {
+        guard
+            let root = result["root"]?.stringValue,
+            let createdValue = result["created_at_ms"]?.numberValue,
+            let createdAt = UInt64(exactly: createdValue),
+            let statusMarkdown = result["status_markdown"]?.stringValue,
+            let inboxMarkdown = result["inbox_markdown"]?.stringValue,
+            let referenceValues = result["references"]?.arrayValue,
+            let indexedValue = result["indexed_file_count"]?.numberValue,
+            let indexedFileCount = UInt64(exactly: indexedValue)
+        else { return nil }
+        let references = referenceValues.compactMap(WorkspaceReference.init(value:))
+        guard references.count == referenceValues.count else { return nil }
+        self.root = root
+        createdAtMilliseconds = createdAt
+        self.statusMarkdown = statusMarkdown
+        self.inboxMarkdown = inboxMarkdown
+        self.references = references
+        self.indexedFileCount = indexedFileCount
+        lastEventID = result["last_event_id"]?.numberValue.flatMap(UInt64.init(exactly:))
+    }
+}
+
+public struct WorkspaceEvent: Identifiable, Equatable, Sendable {
+    public let id: UInt64
+    public let timestampMilliseconds: UInt64
+    public let kind: String
+    public let path: String?
+    public let provenance: WorkspaceProvenance
+    public let correlationID: String?
+
+    init?(value: JSONValue) {
+        guard
+            let object = value.objectValue,
+            let idValue = object["id"]?.numberValue,
+            let id = UInt64(exactly: idValue),
+            let timestampValue = object["timestamp_ms"]?.numberValue,
+            let timestamp = UInt64(exactly: timestampValue),
+            let kind = object["kind"]?.stringValue,
+            let provenanceValue = object["provenance"]?.stringValue,
+            let provenance = WorkspaceProvenance(rawValue: provenanceValue)
+        else { return nil }
+        self.id = id
+        timestampMilliseconds = timestamp
+        self.kind = kind
+        path = object["path"]?.stringValue
+        self.provenance = provenance
+        correlationID = object["correlation_id"]?.stringValue
+    }
+}
+
+public struct WorkspaceContextFile: Equatable, Sendable {
+    public let path: String
+    public let content: String
+    public let truncated: Bool
+
+    init?(value: JSONValue) {
+        guard
+            let object = value.objectValue,
+            let path = object["path"]?.stringValue,
+            let content = object["content"]?.stringValue,
+            let truncated = object["truncated"]?.boolValue
+        else { return nil }
+        self.path = path
+        self.content = content
+        self.truncated = truncated
+    }
+}
+
+public struct WorkspaceContextSlice: Equatable, Sendable {
+    public let scope: String
+    public let files: [WorkspaceContextFile]
+
+    init?(result: [String: JSONValue]) {
+        guard
+            let scope = result["scope"]?.stringValue,
+            let fileValues = result["files"]?.arrayValue
+        else { return nil }
+        let files = fileValues.compactMap(WorkspaceContextFile.init(value:))
+        guard files.count == fileValues.count else { return nil }
+        self.scope = scope
+        self.files = files
+    }
+}
+
 public enum SessionState: String, Equatable, Sendable {
     case starting, ready, running, completed, cancelled, failed
 }

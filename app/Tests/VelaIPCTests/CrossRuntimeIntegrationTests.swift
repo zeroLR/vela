@@ -14,6 +14,8 @@ struct CrossRuntimeIntegrationTests {
 
         let socketPath = "/tmp/vela-swift-test-\(getpid()).sock"
         let configPath = "/tmp/vela-swift-harnesses-\(getpid()).json"
+        let workspacePath = "/tmp/vela-swift-workspace-\(getpid())"
+        let referencePath = "/tmp/vela-swift-reference-\(getpid())"
         let fakeHarnessPath = URL(fileURLWithPath: corePath)
             .deletingLastPathComponent()
             .appendingPathComponent("fake-acp-harness").path
@@ -50,6 +52,8 @@ struct CrossRuntimeIntegrationTests {
             client.disconnect(reason: nil)
             supervisor.stop()
             try? FileManager.default.removeItem(atPath: configPath)
+            try? FileManager.default.removeItem(atPath: workspacePath)
+            try? FileManager.default.removeItem(atPath: referencePath)
         }
 
         #expect(await supervisor.start())
@@ -95,6 +99,43 @@ struct CrossRuntimeIntegrationTests {
         #expect(client.transcript.events.map(\.name) == [
             "stream.chunk", "stream.chunk", "stream.chunk", "stream.completed",
         ])
+
+        try? FileManager.default.createDirectory(
+            atPath: referencePath,
+            withIntermediateDirectories: true
+        )
+        let externalFile = URL(fileURLWithPath: referencePath).appendingPathComponent("README.md")
+        try? Data("external truth\n".utf8).write(to: externalFile)
+        #expect(client.openWorkspace(root: workspacePath) != nil)
+        #expect(await waitUntil { client.workspace != nil })
+        #expect(client.workspace?.root.hasSuffix("/vela-swift-workspace-\(getpid())") == true)
+        #expect(FileManager.default.fileExists(atPath: workspacePath + "/STATUS.md"))
+
+        #expect(client.writeWorkspaceFile(
+            path: "STATUS.md",
+            content: "# Status\n\nSwift vertical slice\n",
+            provenance: .user
+        ) != nil)
+        #expect(await waitUntil {
+            client.workspace?.statusMarkdown.contains("Swift vertical slice") == true
+        })
+        #expect(client.addWorkspaceReference(path: referencePath) != nil)
+        #expect(await waitUntil { client.workspace?.references.count == 1 })
+        #expect(client.loadStatusContext() != nil)
+        #expect(await waitUntil { client.workspaceContext?.files.count == 2 })
+        #expect(client.loadWorkspaceEvents() != nil)
+        #expect(await waitUntil {
+            client.workspaceEvents.contains {
+                $0.kind == "workspace.file_changed" && $0.provenance == .user
+            }
+        })
+        guard let referenceID = client.workspace?.references.first?.id else {
+            Issue.record("expected a workspace reference")
+            return
+        }
+        #expect(client.removeWorkspaceReference(id: referenceID) != nil)
+        #expect(await waitUntil { client.workspace?.references.isEmpty == true })
+        #expect(FileManager.default.fileExists(atPath: externalFile.path))
 
         supervisor.killForDiagnostics()
         #expect(await waitUntil {

@@ -24,6 +24,9 @@ public final class IPCClient: ObservableObject {
     @Published public private(set) var isCreatingSession = false
     @Published public private(set) var pendingPermissions: [PermissionRequest] = []
     @Published public private(set) var permissionHistory: [PermissionAuditRecord] = []
+    @Published public private(set) var workspace: WorkspaceSnapshot?
+    @Published public private(set) var workspaceEvents: [WorkspaceEvent] = []
+    @Published public private(set) var workspaceContext: WorkspaceContextSlice?
 
     private var connection: NWConnection?
     private var receiveBuffer = Data()
@@ -63,6 +66,9 @@ public final class IPCClient: ObservableObject {
         isCreatingSession = false
         pendingPermissions.removeAll()
         permissionHistory.removeAll()
+        workspace = nil
+        workspaceEvents.removeAll()
+        workspaceContext = nil
         state = reason == nil ? .disconnected : .degraded
         if let reason {
             appendDiagnostic(reason)
@@ -154,6 +160,68 @@ public final class IPCClient: ObservableObject {
             method: "permissions.history",
             params: ["session_id": .string(session.id)]
         )
+    }
+
+    @discardableResult
+    public func openWorkspace(root: String) -> String? {
+        guard !root.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return send(method: "workspace.open", params: ["root": .string(root)])
+    }
+
+    @discardableResult
+    public func refreshWorkspace() -> String? {
+        guard workspace != nil else { return nil }
+        return send(method: "workspace.refresh")
+    }
+
+    @discardableResult
+    public func writeWorkspaceFile(
+        path: String,
+        content: String,
+        provenance: WorkspaceProvenance = .user
+    ) -> String? {
+        guard workspace != nil else { return nil }
+        return send(
+            method: "workspace.write",
+            params: [
+                "path": .string(path),
+                "content": .string(content),
+                "provenance": .string(provenance.rawValue),
+            ]
+        )
+    }
+
+    @discardableResult
+    public func addWorkspaceReference(path: String) -> String? {
+        guard workspace != nil else { return nil }
+        return send(method: "workspace.reference.add", params: ["path": .string(path)])
+    }
+
+    @discardableResult
+    public func removeWorkspaceReference(id: String) -> String? {
+        guard workspace != nil else { return nil }
+        return send(
+            method: "workspace.reference.remove",
+            params: ["reference_id": .string(id)]
+        )
+    }
+
+    @discardableResult
+    public func loadWorkspaceEvents(limit: Int = 50) -> String? {
+        guard workspace != nil else { return nil }
+        return send(method: "workspace.events", params: ["limit": .number(Double(limit))])
+    }
+
+    @discardableResult
+    public func loadStatusContext() -> String? {
+        guard workspace != nil else { return nil }
+        return send(method: "workspace.context", params: ["scope": .string("status")])
+    }
+
+    @discardableResult
+    public func rebuildWorkspaceIndex() -> String? {
+        guard workspace != nil else { return nil }
+        return send(method: "workspace.rebuild")
     }
 
     public func clearSessionEvents() {
@@ -323,6 +391,38 @@ public final class IPCClient: ObservableObject {
                 agentRegistry = snapshot
             }
             appendDiagnostic("\(method) found \(snapshot.agents.count) agent definitions")
+        } else if [
+            "workspace.open",
+            "workspace.status",
+            "workspace.refresh",
+            "workspace.write",
+            "workspace.reference.add",
+            "workspace.reference.remove",
+            "workspace.rebuild",
+        ].contains(method) {
+            guard let result = message.result, let snapshot = WorkspaceSnapshot(result: result) else {
+                appendDiagnostic("\(method) returned an invalid workspace snapshot")
+                return
+            }
+            workspace = snapshot
+            appendDiagnostic("\(method) indexed \(snapshot.indexedFileCount) files")
+        } else if method == "workspace.events" {
+            guard let values = message.result?["events"]?.arrayValue else {
+                appendDiagnostic("workspace.events returned an invalid result")
+                return
+            }
+            let events = values.compactMap(WorkspaceEvent.init(value:))
+            guard events.count == values.count else {
+                appendDiagnostic("workspace.events returned malformed events")
+                return
+            }
+            workspaceEvents = events
+        } else if method == "workspace.context" {
+            guard let result = message.result, let context = WorkspaceContextSlice(result: result) else {
+                appendDiagnostic("workspace.context returned an invalid context slice")
+                return
+            }
+            workspaceContext = context
         } else if method == "session.create" {
             isCreatingSession = false
             guard let result = message.result, let descriptor = SessionDescriptor(result: result) else {
