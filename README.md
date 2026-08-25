@@ -54,7 +54,7 @@ The detailed, acceptance-test-driven execution plan lives in [`plan/`](plan/READ
 
 ## Development
 
-Phase 00–06 establish the Swift/Rust skeleton, local IPC, ACP harness discovery, session runtime, permission broker, fail-closed real-adapter enforcement, local-first workspace, and text/speech capture implementation. The app can capture through a floating global-hotkey panel, preserve and correct structured routes, update compact work state, and derive local utility metrics without starting ACP.
+Phase 00–06 establish the Swift/Rust skeleton, local IPC, ACP harness discovery, session runtime, permission broker, fail-closed real-adapter enforcement, local-first workspace, and text/speech capture implementation. The app can capture through a floating global-hotkey panel, preserve and correct structured routes, update compact work state, answer active-focus/blocker/next-action questions from workspace files, and derive local utility metrics without starting ACP.
 
 ```bash
 cargo build --manifest-path core/Cargo.toml --workspace
@@ -68,4 +68,4 @@ See [`schemas/ipc-v1.md`](schemas/ipc-v1.md) for the wire contract, [`schemas/ha
 
 ## Status
 
-Phase 06 implementation is complete: capture durability/routing/correction/metrics pass through a real Swift→Rust process boundary, and the native app includes `⌥Space` Quick Capture plus push-to-talk recovery. Gate B remains pending real macOS hotkey/microphone validation and multi-session dogfood metrics. Do not begin Phase 07 avatar work until that evidence is recorded.
+Phase 06 implementation is complete: capture durability/routing/correction/metrics and derived current-state answers pass through a real Swift→Rust process boundary, and the native app includes `⌥Space` Quick Capture plus push-to-talk recovery. Gate B remains pending real macOS hotkey/microphone validation and multi-session dogfood metrics. Do not begin Phase 07 avatar work until that evidence is recorded.

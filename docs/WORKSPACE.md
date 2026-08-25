@@ -62,6 +62,18 @@ Context is explicit and bounded to 32 KiB per requested file:
 
 Core returns a `truncated` flag instead of silently expanding a large file. It never recursively injects a repository into an agent prompt.
 
+## Current-state answers
+
+`workspace.current_state` answers "what is active, blocked, or next" from files
+alone, so an answer cannot come from conversation memory. `STATUS.md` stays the
+canonical, hand-editable source: parsing is forgiving (bullet markers optional, any
+non-empty line under a known heading counts) and unknown headings are ignored rather
+than guessed at. Unedited template placeholders and completed `[x]` items are
+excluded, so "nothing recorded" means nothing was recorded. Capture-written lines
+keep their `capture_id`, `tasks/` files are listed as open tasks, and
+`status_updated_at_ms` lets the UI show how stale the answer is. Nothing is derived
+from SQLite, and the result is bounded with an explicit `truncated` flag.
+
 ## Recovery procedure
 
 1. Stop Core or close the active workspace.
@@ -73,4 +85,4 @@ Do not delete `context/REFERENCES.json` or `.vela/workspace.json`; they are cano
 
 ## Verification coverage
 
-Rust tests prove create/reopen durability, index deletion/rebuild, external mutation detection, watcher recovery, loop-free self writes, bounded traversal-safe context, and non-destructive reference removal. IPC tests exercise those operations over a real Unix socket. The Swift/Rust integration test drives the same slice from `IPCClient` against a real `vela-core` process.
+Rust tests prove create/reopen durability, index deletion/rebuild, external mutation detection, watcher recovery, loop-free self writes, bounded traversal-safe context, current-state parsing with its placeholder/completed-item exclusions and task bounds, and non-destructive reference removal. IPC tests exercise those operations over a real Unix socket. The Swift/Rust integration test drives the same slice from `IPCClient` against a real `vela-core` process.

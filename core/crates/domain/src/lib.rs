@@ -133,6 +133,36 @@ pub struct WorkspaceContextSlice {
     pub files: Vec<WorkspaceContextFile>,
 }
 
+/// One line of current work state. `capture_id` is set when the line was written
+/// by a capture rather than typed into `STATUS.md` directly.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceStateEntry {
+    pub text: String,
+    pub capture_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceOpenTask {
+    pub path: String,
+    pub title: String,
+    pub capture_id: Option<String>,
+    pub updated_at_ms: u64,
+}
+
+/// The answer to "what is active, blocked, or next", derived only from workspace
+/// files. `truncated` reports that a bound dropped content instead of hiding it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceCurrentState {
+    pub active_focus: Vec<WorkspaceStateEntry>,
+    pub blockers: Vec<WorkspaceStateEntry>,
+    pub next_actions: Vec<WorkspaceStateEntry>,
+    pub captured_work_updates: Vec<WorkspaceStateEntry>,
+    pub open_tasks: Vec<WorkspaceOpenTask>,
+    pub open_task_count: u64,
+    pub status_updated_at_ms: u64,
+    pub truncated: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CaptureSource {

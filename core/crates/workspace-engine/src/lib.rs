@@ -10,8 +10,9 @@ use std::{
 };
 
 use domain::{
-    WorkspaceContextFile, WorkspaceContextSlice, WorkspaceEvent, WorkspaceProvenance,
-    WorkspaceReference, WorkspaceSnapshot,
+    WorkspaceContextFile, WorkspaceContextSlice, WorkspaceCurrentState, WorkspaceEvent,
+    WorkspaceOpenTask, WorkspaceProvenance, WorkspaceReference, WorkspaceSnapshot,
+    WorkspaceStateEntry,
 };
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
@@ -23,6 +24,12 @@ const REFERENCES_RELATIVE_PATH: &str = "context/REFERENCES.json";
 const CONTEXT_BYTE_LIMIT: usize = 32 * 1024;
 const STATUS_TEMPLATE: &str = "# Status\n\n## Active focus\n\n- None\n\n## Blockers\n\n- None\n\n## Next actions\n\n- Define the next useful action.\n";
 const INBOX_TEMPLATE: &str = "# Inbox\n\nCapture unprocessed notes and requests here.\n";
+const TASK_RELATIVE_DIRECTORY: &str = "tasks";
+const TASK_PREFIX_BYTE_LIMIT: usize = 8 * 1024;
+const CURRENT_STATE_ENTRY_LIMIT: usize = 50;
+const OPEN_TASK_LIMIT: usize = 20;
+/// Template lines that mean "nothing recorded yet" and must not be reported as state.
+const STATUS_PLACEHOLDERS: [&str; 2] = ["none", "define the next useful action."];
 static NEXT_TEMPORARY_FILE: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -436,6 +443,60 @@ impl Workspace {
                 self.read_workspace_context("INBOX.md")?,
             ],
         })
+    }
+
+    /// Answers active focus, blockers, and next actions from `STATUS.md` and the
+    /// task files, so current-state questions never depend on conversation memory.
+    pub fn current_state(&self) -> Result<WorkspaceCurrentState, WorkspaceError> {
+        let status = self.read_workspace_context("STATUS.md")?;
+        let sections = parse_status_sections(&status.content);
+        let (open_tasks, open_task_count) = self.open_tasks()?;
+        Ok(WorkspaceCurrentState {
+            active_focus: sections.active_focus,
+            blockers: sections.blockers,
+            next_actions: sections.next_actions,
+            captured_work_updates: sections.captured_work_updates,
+            status_updated_at_ms: modified_ms(&self.root.join("STATUS.md"))?,
+            truncated: status.truncated
+                || sections.truncated
+                || open_tasks.len() as u64 != open_task_count,
+            open_tasks,
+            open_task_count,
+        })
+    }
+
+    fn open_tasks(&self) -> Result<(Vec<WorkspaceOpenTask>, u64), WorkspaceError> {
+        let directory = self.root.join(TASK_RELATIVE_DIRECTORY);
+        if !directory.is_dir() {
+            return Ok((Vec::new(), 0));
+        }
+        let mut tasks = Vec::new();
+        for entry in fs::read_dir(&directory)? {
+            let path = entry?.path();
+            if !path.is_file() || path.extension().and_then(|value| value.to_str()) != Some("md") {
+                continue;
+            }
+            let file_name = path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let content = read_prefix(&path, TASK_PREFIX_BYTE_LIMIT)?;
+            tasks.push(WorkspaceOpenTask {
+                title: task_title(&content).unwrap_or_else(|| file_name.clone()),
+                path: format!("{TASK_RELATIVE_DIRECTORY}/{file_name}"),
+                capture_id: task_capture_id(&content),
+                updated_at_ms: modified_ms(&path)?,
+            });
+        }
+        let count = tasks.len() as u64;
+        tasks.sort_by(|left, right| {
+            right
+                .updated_at_ms
+                .cmp(&left.updated_at_ms)
+                .then_with(|| left.path.cmp(&right.path))
+        });
+        tasks.truncate(OPEN_TASK_LIMIT);
+        Ok((tasks, count))
     }
 
     pub fn context_workspace_path(
@@ -870,6 +931,152 @@ fn parse_provenance(value: &str) -> WorkspaceProvenance {
     }
 }
 
+#[derive(Default)]
+struct StatusSections {
+    active_focus: Vec<WorkspaceStateEntry>,
+    blockers: Vec<WorkspaceStateEntry>,
+    next_actions: Vec<WorkspaceStateEntry>,
+    captured_work_updates: Vec<WorkspaceStateEntry>,
+    truncated: bool,
+}
+
+#[derive(Clone, Copy)]
+enum StatusSection {
+    ActiveFocus,
+    Blockers,
+    NextActions,
+    CapturedWorkUpdates,
+}
+
+/// `STATUS.md` is canonical and hand-editable, so parsing stays forgiving: any
+/// non-empty line under a known heading counts, bullet markers are optional, and
+/// unknown headings are ignored rather than guessed at.
+fn parse_status_sections(content: &str) -> StatusSections {
+    let mut active_focus = Vec::new();
+    let mut blockers = Vec::new();
+    let mut next_actions = Vec::new();
+    let mut captured_work_updates = Vec::new();
+    let mut truncated = false;
+    let mut section: Option<StatusSection> = None;
+    let mut capture_id: Option<String> = None;
+
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if let Some(id) = marker_capture_id(line, "start") {
+            capture_id = Some(id);
+            continue;
+        }
+        if marker_capture_id(line, "end").is_some() {
+            capture_id = None;
+            continue;
+        }
+        if line.starts_with("<!--") {
+            continue;
+        }
+        if let Some(heading) = line.strip_prefix('#') {
+            section = status_section(heading.trim_start_matches('#').trim());
+            continue;
+        }
+        let Some(current) = section else { continue };
+        let Some(text) = entry_text(line) else {
+            continue;
+        };
+        let entries = match current {
+            StatusSection::ActiveFocus => &mut active_focus,
+            StatusSection::Blockers => &mut blockers,
+            StatusSection::NextActions => &mut next_actions,
+            StatusSection::CapturedWorkUpdates => &mut captured_work_updates,
+        };
+        if entries.len() >= CURRENT_STATE_ENTRY_LIMIT {
+            truncated = true;
+            continue;
+        }
+        entries.push(WorkspaceStateEntry {
+            text,
+            capture_id: capture_id.clone(),
+        });
+    }
+
+    StatusSections {
+        active_focus,
+        blockers,
+        next_actions,
+        captured_work_updates,
+        truncated,
+    }
+}
+
+fn status_section(heading: &str) -> Option<StatusSection> {
+    match heading.to_lowercase().as_str() {
+        "active focus" => Some(StatusSection::ActiveFocus),
+        "blockers" => Some(StatusSection::Blockers),
+        "next actions" => Some(StatusSection::NextActions),
+        "captured work updates" => Some(StatusSection::CapturedWorkUpdates),
+        _ => None,
+    }
+}
+
+fn entry_text(line: &str) -> Option<String> {
+    let mut text = line;
+    for marker in ["- ", "* ", "+ "] {
+        if let Some(rest) = text.strip_prefix(marker) {
+            text = rest;
+            break;
+        }
+    }
+    let text = text.trim();
+    let lowercase = text.to_lowercase();
+    // A checked box is completed work, not current state.
+    if lowercase.starts_with("[x]") {
+        return None;
+    }
+    let text = text.strip_prefix("[ ]").unwrap_or(text).trim();
+    if text.is_empty() || STATUS_PLACEHOLDERS.contains(&text.to_lowercase().as_str()) {
+        return None;
+    }
+    Some(text.to_owned())
+}
+
+fn marker_capture_id(line: &str, suffix: &str) -> Option<String> {
+    line.strip_prefix("<!-- vela:capture:")?
+        .strip_suffix(" -->")?
+        .strip_suffix(&format!(":{suffix}"))
+        .map(str::to_owned)
+}
+
+fn task_title(content: &str) -> Option<String> {
+    content
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("# "))
+        .map(|title| title.trim().to_owned())
+        .filter(|title| !title.is_empty())
+}
+
+fn task_capture_id(content: &str) -> Option<String> {
+    content.lines().find_map(|line| {
+        line.trim()
+            .strip_prefix("- Capture: `")?
+            .strip_suffix('`')
+            .map(str::to_owned)
+    })
+}
+
+fn read_prefix(path: &Path, limit: usize) -> Result<String, WorkspaceError> {
+    let bytes = fs::read(path)?;
+    Ok(String::from_utf8_lossy(&bytes[..bytes.len().min(limit)]).into_owned())
+}
+
+fn modified_ms(path: &Path) -> Result<u64, WorkspaceError> {
+    Ok(fs::metadata(path)?
+        .modified()?
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or_default())
+}
+
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -927,6 +1134,113 @@ mod tests {
             .unwrap()
             .status_markdown
             .contains("Ship Phase 05"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn current_state_answers_focus_blockers_and_next_actions_from_status() {
+        let root = temporary_directory("current-state");
+        let workspace = Workspace::open(&root).unwrap();
+        workspace
+            .write_file(
+                "STATUS.md",
+                "# Status\n\n\
+                 ## Active focus\n\n- None\n- Land the capture crash fixes\n\n\
+                 ## Blockers\n\nWaiting on real-device push-to-talk validation\n\n\
+                 ## Next actions\n\n- Define the next useful action.\n\
+                 - [ ] Record Gate B dogfood metrics\n- [x] Fix the TCC abort\n\n\
+                 ## Captured work updates\n\n\
+                 <!-- vela:capture:capture-1:start -->\n- working on current-state answers\n\
+                 <!-- vela:capture:capture-1:end -->\n\n\
+                 ## Notes for humans\n\n- ignored because the heading is unknown\n",
+                WorkspaceProvenance::User,
+                None,
+            )
+            .unwrap();
+
+        let state = workspace.current_state().unwrap();
+        assert_eq!(
+            state
+                .active_focus
+                .iter()
+                .map(|entry| entry.text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Land the capture crash fixes"]
+        );
+        // Unbulleted prose counts, because STATUS.md is hand-editable.
+        assert_eq!(
+            state
+                .blockers
+                .iter()
+                .map(|entry| entry.text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Waiting on real-device push-to-talk validation"]
+        );
+        // The template placeholder and the completed box are both excluded.
+        assert_eq!(
+            state
+                .next_actions
+                .iter()
+                .map(|entry| entry.text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Record Gate B dogfood metrics"]
+        );
+        assert_eq!(state.captured_work_updates.len(), 1);
+        assert_eq!(
+            state.captured_work_updates[0].text,
+            "working on current-state answers"
+        );
+        assert_eq!(
+            state.captured_work_updates[0].capture_id.as_deref(),
+            Some("capture-1")
+        );
+        assert!(state.active_focus[0].capture_id.is_none());
+        assert!(!state.truncated);
+        assert!(state.status_updated_at_ms > 0);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn current_state_reports_open_tasks_and_its_own_bounds() {
+        let root = temporary_directory("current-state-tasks");
+        let workspace = Workspace::open(&root).unwrap();
+        fs::write(
+            root.join("tasks/capture-9.md"),
+            "# Fix the audio tap isolation\n\n- Capture: `capture-9`\n- Intent: `Todo`\n\ntodo: fix the audio tap\n",
+        )
+        .unwrap();
+        fs::write(root.join("tasks/hand-written.md"), "no title here\n").unwrap();
+        fs::write(root.join("tasks/ignored.txt"), "not markdown\n").unwrap();
+
+        let state = workspace.current_state().unwrap();
+        assert_eq!(state.open_task_count, 2);
+        assert!(!state.truncated);
+        let capture_task = state
+            .open_tasks
+            .iter()
+            .find(|task| task.path == "tasks/capture-9.md")
+            .unwrap();
+        assert_eq!(capture_task.title, "Fix the audio tap isolation");
+        assert_eq!(capture_task.capture_id.as_deref(), Some("capture-9"));
+        assert!(capture_task.updated_at_ms > 0);
+        let plain_task = state
+            .open_tasks
+            .iter()
+            .find(|task| task.path == "tasks/hand-written.md")
+            .unwrap();
+        assert_eq!(plain_task.title, "hand-written.md");
+        assert!(plain_task.capture_id.is_none());
+
+        for index in 0..super::OPEN_TASK_LIMIT + 5 {
+            fs::write(root.join(format!("tasks/bulk-{index}.md")), "# Bulk\n").unwrap();
+        }
+        let bounded = workspace.current_state().unwrap();
+        assert_eq!(bounded.open_tasks.len(), super::OPEN_TASK_LIMIT);
+        assert_eq!(
+            bounded.open_task_count,
+            super::OPEN_TASK_LIMIT as u64 + 5 + 2
+        );
+        assert!(bounded.truncated, "a dropped task must be reported");
         fs::remove_dir_all(root).unwrap();
     }
 

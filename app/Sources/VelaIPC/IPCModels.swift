@@ -297,6 +297,103 @@ public struct WorkspaceContextSlice: Equatable, Sendable {
     }
 }
 
+public struct WorkspaceStateEntry: Equatable, Sendable {
+    public let text: String
+    public let captureID: String?
+
+    init(text: String, captureID: String?) {
+        self.text = text
+        self.captureID = captureID
+    }
+
+    init?(value: JSONValue) {
+        guard let object = value.objectValue, let text = object["text"]?.stringValue else {
+            return nil
+        }
+        self.init(text: text, captureID: object["capture_id"]?.stringValue)
+    }
+}
+
+public struct WorkspaceOpenTask: Equatable, Sendable, Identifiable {
+    public let path: String
+    public let title: String
+    public let captureID: String?
+    public let updatedAtMilliseconds: UInt64
+
+    public var id: String { path }
+
+    init?(value: JSONValue) {
+        guard
+            let object = value.objectValue,
+            let path = object["path"]?.stringValue,
+            let title = object["title"]?.stringValue,
+            let updatedValue = object["updated_at_ms"]?.numberValue,
+            let updated = UInt64(exactly: updatedValue)
+        else { return nil }
+        self.path = path
+        self.title = title
+        captureID = object["capture_id"]?.stringValue
+        updatedAtMilliseconds = updated
+    }
+}
+
+public struct WorkspaceCurrentState: Equatable, Sendable {
+    public let activeFocus: [WorkspaceStateEntry]
+    public let blockers: [WorkspaceStateEntry]
+    public let nextActions: [WorkspaceStateEntry]
+    public let capturedWorkUpdates: [WorkspaceStateEntry]
+    public let openTasks: [WorkspaceOpenTask]
+    public let openTaskCount: UInt64
+    public let statusUpdatedAtMilliseconds: UInt64
+    public let truncated: Bool
+
+    /// "What am I working on?" — written focus first, then captured work updates.
+    public var workingOn: [WorkspaceStateEntry] { activeFocus + capturedWorkUpdates }
+
+    /// "What should I do next?" — written next actions, then captured tasks.
+    public var nextUp: [WorkspaceStateEntry] {
+        nextActions + openTasks.map { WorkspaceStateEntry(text: $0.title, captureID: $0.captureID) }
+    }
+
+    public var isEmpty: Bool {
+        workingOn.isEmpty && blockers.isEmpty && nextUp.isEmpty
+    }
+
+    init?(result: [String: JSONValue]) {
+        guard
+            let focusValues = result["active_focus"]?.arrayValue,
+            let blockerValues = result["blockers"]?.arrayValue,
+            let nextValues = result["next_actions"]?.arrayValue,
+            let updateValues = result["captured_work_updates"]?.arrayValue,
+            let taskValues = result["open_tasks"]?.arrayValue,
+            let taskCountValue = result["open_task_count"]?.numberValue,
+            let taskCount = UInt64(exactly: taskCountValue),
+            let updatedValue = result["status_updated_at_ms"]?.numberValue,
+            let updated = UInt64(exactly: updatedValue),
+            let truncated = result["truncated"]?.boolValue
+        else { return nil }
+        let focus = focusValues.compactMap(WorkspaceStateEntry.init(value:))
+        let blockers = blockerValues.compactMap(WorkspaceStateEntry.init(value:))
+        let next = nextValues.compactMap(WorkspaceStateEntry.init(value:))
+        let updates = updateValues.compactMap(WorkspaceStateEntry.init(value:))
+        let tasks = taskValues.compactMap(WorkspaceOpenTask.init(value:))
+        guard focus.count == focusValues.count,
+              blockers.count == blockerValues.count,
+              next.count == nextValues.count,
+              updates.count == updateValues.count,
+              tasks.count == taskValues.count
+        else { return nil }
+        activeFocus = focus
+        self.blockers = blockers
+        nextActions = next
+        capturedWorkUpdates = updates
+        openTasks = tasks
+        openTaskCount = taskCount
+        statusUpdatedAtMilliseconds = updated
+        self.truncated = truncated
+    }
+}
+
 public enum CaptureSource: String, CaseIterable, Equatable, Sendable {
     case text, speech
 }

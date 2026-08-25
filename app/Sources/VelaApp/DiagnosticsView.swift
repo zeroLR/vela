@@ -60,6 +60,7 @@ struct DiagnosticsView: View {
 
             workspacePanel
             capturePanel
+            currentStatePanel
             agentList
             sessionPanel
             permissionPanel
@@ -70,7 +71,7 @@ struct DiagnosticsView: View {
             }
         }
         .padding(20)
-        .frame(minWidth: 900, minHeight: 1450)
+        .frame(minWidth: 900, minHeight: 1600)
         .onChange(of: client.agentRegistry.agents) { _, agents in
             if !agents.contains(where: { $0.id == selectedAgentID && $0.status == .ready }) {
                 selectedAgentID = agents.first(where: { $0.status == .ready })?.id ?? ""
@@ -254,6 +255,19 @@ struct DiagnosticsView: View {
             }
         } label: {
             Text("Capture and Work Utility")
+        }
+    }
+
+    private var currentStatePanel: some View {
+        GroupBox {
+            CurrentStateView(
+                state: client.currentState,
+                entryLimit: 8,
+                reload: { client.loadCurrentState() }
+            )
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } label: {
+            Text("Work State Answers")
         }
     }
 

@@ -10,6 +10,12 @@ The panel supports typed input and a hold-to-talk control. Recording state is ex
 
 Usage descriptions live in `VelaApp.app/Contents/Info.plist`. Start the app with `scripts/run-app.sh`, which builds, ad-hoc signs, and verifies that local bundle before launching it. macOS TCC aborts a process outright when it cannot read a usage description, so pressing hold-to-talk first checks that the running process is inside an `.app` bundle. A bare `swift run` executable still answers the usage-description keys from its embedded `__info_plist` section, which is why the bundle layout — not key presence — is the deciding check; on that launch path push-to-talk reports the required launch command instead of reaching TCC.
 
+The panel also answers the current-state questions inline — working on, blocked,
+next — from `workspace.current_state`, so `⌥Space` covers both capture and "where am
+I" without opening the diagnostics window. Answers refresh after every capture and
+carry the age of `STATUS.md`, because stale state is misleading state. See
+[`WORKSPACE.md`](WORKSPACE.md) for the derivation rules.
+
 The transcript remains editable before submission. Audio is written to a temporary CAF file while recording. On a recognition failure or abandoned speech capture, the UI displays/retains that path so a partial transcript or recording is not silently lost. After a successful capture is acknowledged and dismissed, the temporary audio is removed.
 
 ## Canonical capture record

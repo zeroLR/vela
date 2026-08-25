@@ -20,7 +20,7 @@ final class QuickCapturePanelController {
         }
 
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 560, height: 390),
+            contentRect: NSRect(x: 0, y: 0, width: 560, height: 480),
             styleMask: [.titled, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -129,6 +129,13 @@ private struct QuickCaptureView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 6))
             }
 
+            Divider()
+            CurrentStateView(
+                state: client.currentState,
+                entryLimit: 2,
+                reload: { client.loadCurrentState() }
+            )
+
             Spacer()
             HStack {
                 Button("Cancel", role: .cancel) { cancel() }
@@ -149,7 +156,10 @@ private struct QuickCaptureView: View {
             }
         }
         .padding(18)
-        .onAppear { textFocused = true }
+        .onAppear {
+            textFocused = true
+            client.loadCurrentState()
+        }
         .onChange(of: speech.transcript) { _, transcript in
             guard !transcript.isEmpty else { return }
             rawText = transcript

@@ -25,6 +25,7 @@ Peers accept different minor versions and reject different major versions. Reque
 | `workspace.events` | optional `limit` | Returns up to 500 ordered workspace events |
 | `workspace.rebuild` | `{}` | Rebuilds the derived SQLite index and returns `WorkspaceSnapshot` |
 | `workspace.context` | `scope`, optional `path`/`reference_id` | Returns an explicit bounded `WorkspaceContextSlice` |
+| `workspace.current_state` | `{}` | Returns the derived `WorkspaceCurrentState` answer set |
 | `capture.create` | `source`, `raw_text`, optional `intent`/`started_at_ms` | Classifies, routes, and returns a durable `CaptureRecord` |
 | `capture.abandon` | `source`, optional `raw_text`/`started_at_ms` | Retains an abandoned attempt without routing it |
 | `capture.correct` | `capture_id`, `intent` | Moves the owned route and returns the corrected record |
@@ -78,6 +79,17 @@ Status is one of `unavailable`, `ready`, `unauthenticated`, `incompatible`, or `
 - `status`: no additional parameters; returns status and inbox.
 - `workspace_path`: requires one relative `path`.
 - `reference_path`: requires `reference_id` and a relative `path`.
+
+`workspace.current_state` answers active focus, blockers, and next actions. It is
+derived, never stored: Core parses the `## Active focus`, `## Blockers`,
+`## Next actions`, and `## Captured work updates` sections of `STATUS.md` and lists
+the `tasks/` files. `WorkspaceCurrentState` carries `active_focus`, `blockers`,
+`next_actions`, and `captured_work_updates` as `{text, capture_id}` entries —
+`capture_id` is set only when a capture wrote the line — plus `open_tasks`
+(`{path, title, capture_id, updated_at_ms}`), `open_task_count`,
+`status_updated_at_ms` for staleness, and `truncated`. Unedited template lines and
+completed `[x]` items are not reported as state. At most 50 entries per section and
+20 tasks are returned, and dropping anything sets `truncated`.
 
 Each returned file is capped at 32 KiB and carries `truncated`. Paths cannot traverse outside their selected root. See [`../docs/WORKSPACE.md`](../docs/WORKSPACE.md) for ownership, indexing, watcher, and recovery semantics.
 

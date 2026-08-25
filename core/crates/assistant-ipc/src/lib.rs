@@ -295,6 +295,13 @@ async fn handle_connection(
                 };
                 write_workspace_result(&writer, &request.id, result).await?;
             }
+            "workspace.current_state" => {
+                let result = match workspaces.active().await {
+                    Ok(workspace) => workspace.current_state().map(|state| json!(state)),
+                    Err(error) => Err(error),
+                };
+                write_workspace_result(&writer, &request.id, result).await?;
+            }
             "workspace.context" => {
                 let scope = request.params.get("scope").and_then(Value::as_str);
                 let result = match (workspaces.active().await, scope) {

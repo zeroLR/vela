@@ -164,6 +164,24 @@ struct CrossRuntimeIntegrationTests {
             ))
         }
 
+        let routedTaskPath = correctedCapture?.routedPath
+        #expect(client.writeWorkspaceFile(
+            path: "STATUS.md",
+            content: "# Status\n\n## Active focus\n\n- Swift vertical slice\n\n"
+                + "## Blockers\n\n- None\n\n## Next actions\n\n- Define the next useful action.\n",
+            provenance: .user
+        ) != nil)
+        #expect(client.loadCurrentState() != nil)
+        #expect(await waitUntil {
+            guard let state = client.currentState else { return false }
+            // Template placeholders must not be reported as real state.
+            return state.activeFocus.map(\.text) == ["Swift vertical slice"]
+                && state.blockers.isEmpty
+                && state.nextActions.isEmpty
+                && state.openTasks.contains { $0.path == routedTaskPath }
+                && state.nextUp.contains { $0.captureID == capture.id }
+        })
+
         guard let referenceID = client.workspace?.references.first?.id else {
             Issue.record("expected a workspace reference")
             return

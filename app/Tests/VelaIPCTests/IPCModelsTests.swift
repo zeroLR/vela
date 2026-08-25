@@ -111,6 +111,44 @@ struct IPCModelsTests {
         #expect(metrics.medianCompletionMilliseconds == 20)
     }
 
+    @Test("current work state decodes into focus, blocker, and next answers")
+    func currentState() throws {
+        let state = try #require(WorkspaceCurrentState(result: [
+            "active_focus": .array([.object([
+                "text": .string("Phase 06 current state"),
+                "capture_id": .null,
+            ])]),
+            "blockers": .array([]),
+            "next_actions": .array([.object([
+                "text": .string("Record Gate B metrics"),
+                "capture_id": .null,
+            ])]),
+            "captured_work_updates": .array([.object([
+                "text": .string("working on current-state answers"),
+                "capture_id": .string("capture-1"),
+            ])]),
+            "open_tasks": .array([.object([
+                "path": .string("tasks/capture-2.md"),
+                "title": .string("Fix the audio tap"),
+                "capture_id": .string("capture-2"),
+                "updated_at_ms": .number(42),
+            ])]),
+            "open_task_count": .number(1),
+            "status_updated_at_ms": .number(1_000),
+            "truncated": .bool(false),
+        ]))
+        #expect(state.workingOn.map(\.text) == [
+            "Phase 06 current state",
+            "working on current-state answers",
+        ])
+        #expect(state.workingOn.last?.captureID == "capture-1")
+        #expect(state.blockers.isEmpty)
+        #expect(state.nextUp.map(\.text) == ["Record Gate B metrics", "Fix the audio tap"])
+        #expect(state.openTasks.first?.path == "tasks/capture-2.md")
+        #expect(!state.isEmpty)
+        #expect(!state.truncated)
+    }
+
     @Test("normalized agent events decode without ACP wire types")
     func agentEvent() throws {
         let message = try JSONDecoder().decode(

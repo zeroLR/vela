@@ -27,6 +27,7 @@ public final class IPCClient: ObservableObject {
     @Published public private(set) var workspace: WorkspaceSnapshot?
     @Published public private(set) var workspaceEvents: [WorkspaceEvent] = []
     @Published public private(set) var workspaceContext: WorkspaceContextSlice?
+    @Published public private(set) var currentState: WorkspaceCurrentState?
     @Published public private(set) var captures: [CaptureRecord] = []
     @Published public private(set) var captureMetrics = CaptureMetrics.empty
 
@@ -220,6 +221,13 @@ public final class IPCClient: ObservableObject {
     public func loadStatusContext() -> String? {
         guard workspace != nil else { return nil }
         return send(method: "workspace.context", params: ["scope": .string("status")])
+    }
+
+    /// Answers active focus, blockers, and next actions from workspace files only.
+    @discardableResult
+    public func loadCurrentState() -> String? {
+        guard workspace != nil else { return nil }
+        return send(method: "workspace.current_state")
     }
 
     @discardableResult
@@ -474,6 +482,7 @@ public final class IPCClient: ObservableObject {
             if method == "workspace.open" {
                 _ = listCaptures()
                 _ = loadCaptureMetrics()
+                _ = loadCurrentState()
             }
         } else if method == "workspace.events" {
             guard let values = message.result?["events"]?.arrayValue else {
@@ -486,6 +495,13 @@ public final class IPCClient: ObservableObject {
                 return
             }
             workspaceEvents = events
+        } else if method == "workspace.current_state" {
+            guard let result = message.result,
+                  let state = WorkspaceCurrentState(result: result) else {
+                appendDiagnostic("workspace.current_state returned an invalid state")
+                return
+            }
+            currentState = state
         } else if method == "workspace.context" {
             guard let result = message.result, let context = WorkspaceContextSlice(result: result) else {
                 appendDiagnostic("workspace.context returned an invalid context slice")
@@ -506,6 +522,7 @@ public final class IPCClient: ObservableObject {
             appendDiagnostic("\(method) \(capture.intent.rawValue) [\(capture.id)]")
             _ = refreshWorkspace()
             _ = loadCaptureMetrics()
+            _ = loadCurrentState()
         } else if method == "capture.list" {
             guard let values = message.result?["captures"]?.arrayValue else {
                 appendDiagnostic("capture.list returned an invalid result")

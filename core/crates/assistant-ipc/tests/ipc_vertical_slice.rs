@@ -388,6 +388,103 @@ async fn capture_routing_correction_and_metrics_cross_the_ipc_boundary() {
 }
 
 #[tokio::test]
+async fn current_state_answers_focus_blockers_and_next_actions_after_captures() {
+    let server = TestServer::start("current-state").await;
+    let workspace_root = server.path.with_extension("current-state-workspace");
+    let (mut reader, mut writer) = server.connect().await;
+
+    send(
+        &mut writer,
+        &request(
+            "workspace-open",
+            "workspace.open",
+            json!({ "root": workspace_root }),
+        ),
+    )
+    .await;
+    receive(&mut reader).await;
+
+    send(
+        &mut writer,
+        &request(
+            "workspace-write",
+            "workspace.write",
+            json!({
+                "path": "STATUS.md",
+                "content": "# Status\n\n## Active focus\n\n- Phase 06 current state\n\n\
+                            ## Blockers\n\n- Push-to-talk needs a real device\n\n\
+                            ## Next actions\n\n- Define the next useful action.\n",
+                "provenance": "user",
+            }),
+        ),
+    )
+    .await;
+    receive(&mut reader).await;
+
+    send(
+        &mut writer,
+        &request(
+            "capture-update",
+            "capture.create",
+            json!({
+                "source": "text",
+                "raw_text": "working on current-state answers",
+                "started_at_ms": 1,
+            }),
+        ),
+    )
+    .await;
+    let update = receive(&mut reader).await;
+    assert_eq!(update["result"]["intent"], "work_update");
+    let update_id = update["result"]["id"].as_str().unwrap().to_owned();
+
+    send(
+        &mut writer,
+        &request(
+            "capture-task",
+            "capture.create",
+            json!({
+                "source": "text",
+                "raw_text": "todo: record Gate B dogfood metrics",
+                "started_at_ms": 2,
+            }),
+        ),
+    )
+    .await;
+    let task = receive(&mut reader).await;
+    assert_eq!(task["result"]["intent"], "todo");
+    let task_path = task["result"]["routed_path"].as_str().unwrap().to_owned();
+
+    send(
+        &mut writer,
+        &request("current-state", "workspace.current_state", json!({})),
+    )
+    .await;
+    let state = receive(&mut reader).await;
+    let result = &state["result"];
+
+    assert_eq!(result["active_focus"][0]["text"], "Phase 06 current state");
+    assert!(result["active_focus"][0]["capture_id"].is_null());
+    assert_eq!(
+        result["blockers"][0]["text"],
+        "Push-to-talk needs a real device"
+    );
+    // The unedited template line must not be reported as a next action.
+    assert_eq!(result["next_actions"], json!([]));
+    assert_eq!(
+        result["captured_work_updates"][0]["text"],
+        "working on current-state answers"
+    );
+    assert_eq!(result["captured_work_updates"][0]["capture_id"], update_id);
+    assert_eq!(result["open_task_count"], 1);
+    assert_eq!(result["open_tasks"][0]["path"], task_path);
+    assert_eq!(result["truncated"], false);
+    assert!(result["status_updated_at_ms"].as_u64().unwrap() > 0);
+
+    std::fs::remove_dir_all(workspace_root).unwrap();
+}
+
+#[tokio::test]
 async fn permission_queries_are_structured_and_stale_decisions_are_rejected() {
     let server = TestServer::start("permissions").await;
     let (mut reader, mut writer) = server.connect().await;
