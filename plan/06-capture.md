@@ -60,9 +60,9 @@ During normal work, the user can capture text or speech within seconds, see wher
 
 ## Acceptance Criteria
 
-- [ ] Global hotkey opens capture reliably while another app has focus.
-- [ ] Text capture can be completed without opening the full workspace window.
-- [ ] Push-to-talk clearly indicates recording state.
+- [x] Global hotkey opens capture reliably while another app has focus.
+- [x] Text capture can be completed without opening the full workspace window.
+- [x] Push-to-talk clearly indicates recording state.
 - [x] STT failure does not lose recorded/captured intent where recovery is possible.
 - [x] Raw input and structured result are both retained.
 - [x] User can correct routing/type after capture.
