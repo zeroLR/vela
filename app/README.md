@@ -15,4 +15,14 @@ Expected responsibilities:
 
 Do not place ACP/provider protocol logic here. The app consumes Vela-owned IPC/domain events only.
 
-The Xcode project and concrete source tree are intentionally deferred to `plan/00-foundation.md` so the first implementation can validate the minimum useful structure instead of committing speculative boilerplate.
+The Phase 00/01 Swift package contains a native SwiftUI diagnostics app, an IPC client, and a `vela-core` process supervisor.
+
+From the repository root:
+
+```bash
+cargo build --manifest-path core/Cargo.toml --workspace
+swift test --package-path app
+VELA_CORE_PATH="$PWD/core/target/debug/vela-core" swift run --package-path app VelaApp
+```
+
+The debug screen can run and cancel a deterministic 20-event stream, terminate Core, and explicitly restart/reconnect without relaunching the app. The supervisor also checks the development build location when `VELA_CORE_PATH` is not set.
