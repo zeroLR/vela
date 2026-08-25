@@ -54,7 +54,7 @@ The detailed, acceptance-test-driven execution plan lives in [`plan/`](plan/READ
 
 ## Development
 
-Phase 00–04.1 establish the Swift/Rust skeleton, local IPC, ACP harness discovery, session runtime, permission broker, and fail-closed real-adapter enforcement. The debug app can select a ready adapter, show its enforced ACP mode, create a process/session, submit text, render normalized streaming events, mediate permission requests, cancel a run, and recover by creating a new session after adapter failure.
+Phase 00–05 establish the Swift/Rust skeleton, local IPC, ACP harness discovery, session runtime, permission broker, fail-closed real-adapter enforcement, and a local-first workspace. The debug app can operate ACP sessions and permissions, create/reopen a workspace, edit compact status, manage non-destructive external references, reconcile changes, rebuild its derived index, and request bounded context.
 
 ```bash
 cargo build --manifest-path core/Cargo.toml --workspace
@@ -62,8 +62,8 @@ scripts/check.sh
 VELA_CORE_PATH="$PWD/core/target/debug/vela-core" swift run --package-path app VelaApp
 ```
 
-See [`schemas/ipc-v1.md`](schemas/ipc-v1.md) for the wire contract, [`schemas/harness-config-v1.md`](schemas/harness-config-v1.md) for custom discovery entries, and [`docs/IPC_LIFECYCLE.md`](docs/IPC_LIFECYCLE.md) for supervision/recovery semantics.
+See [`schemas/ipc-v1.md`](schemas/ipc-v1.md) for the wire contract, [`schemas/harness-config-v1.md`](schemas/harness-config-v1.md) for custom discovery entries, [`docs/IPC_LIFECYCLE.md`](docs/IPC_LIFECYCLE.md) for supervision/recovery semantics, and [`docs/WORKSPACE.md`](docs/WORKSPACE.md) for workspace ownership and rebuild rules.
 
 ## Status
 
-Phase 00–04.1 execution plane is complete and Gate A passes. Fake ACP sessions and permission decisions are deterministic end to end, Swift/Rust cross-runtime permission mediation passes, and disposable real `codex-acp` and `claude-agent-acp` write probes both crossed the Vela broker, were denied, and left no file behind. Phase 05 local-first workspace is next; capture and avatar behavior remain intentionally out of scope.
+Phase 00–05 is complete. Gate A passes for both installed real adapters, and the local-first workspace is durable independently of chat sessions and its SQLite index. Filesystem/reference recovery, external edits, bounded context, and Swift→Rust workspace operations pass end to end. Phase 06 — Capture is next; avatar behavior remains intentionally out of scope.

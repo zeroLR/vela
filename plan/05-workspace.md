@@ -72,16 +72,16 @@ Vela can create/open its workspace, add a referenced project folder, observe cha
 
 ## Acceptance Criteria
 
-- [ ] Workspace can be created and reopened without data loss.
-- [ ] Core treats filesystem artifacts as canonical work content.
-- [ ] SQLite can be deleted/rebuilt without losing canonical workspace data.
-- [ ] A referenced folder can be added and removed without copying or deleting its contents.
-- [ ] External edits are detected and indexed.
-- [ ] Self-generated edits do not produce unbounded watcher loops.
-- [ ] Events contain timestamp, type, correlation/provenance where applicable.
-- [ ] `STATUS.md` or equivalent compact state can answer active focus, blockers, and next actions.
-- [ ] Agent context requests can load status first and expand into deeper project/context/evidence layers on demand.
-- [ ] Tests cover reopen, index rebuild, external mutation, reference removal, and watcher recovery.
+- [x] Workspace can be created and reopened without data loss.
+- [x] Core treats filesystem artifacts as canonical work content.
+- [x] SQLite can be deleted/rebuilt without losing canonical workspace data.
+- [x] A referenced folder can be added and removed without copying or deleting its contents.
+- [x] External edits are detected and indexed.
+- [x] Self-generated edits do not produce unbounded watcher loops.
+- [x] Events contain timestamp, type, correlation/provenance where applicable.
+- [x] `STATUS.md` or equivalent compact state can answer active focus, blockers, and next actions.
+- [x] Agent context requests can load status first and expand into deeper project/context/evidence layers on demand.
+- [x] Tests cover reopen, index rebuild, external mutation, reference removal, and watcher recovery.
 
 ## Validation Procedure
 
@@ -100,6 +100,14 @@ Vela can create/open its workspace, add a referenced project folder, observe cha
 - Index rebuild procedure and duration.
 - Context-selection trace showing progressive disclosure.
 
+## Validation Record — 2026-08-25
+
+- `workspace-engine` tests create and reopen canonical state, delete/rebuild SQLite, detect an external edit through the polling watcher, remove a reference without deleting its file, and reject traversal/symlink context reads.
+- The workspace IPC test uses a real Unix socket to open, write status, add/read/remove a reference, and verify request correlation in the event stream.
+- The Swift/Rust integration test starts a real `vela-core`, drives the workspace through `IPCClient`, verifies status/reference/context/event state, and confirms referenced content survives removal.
+- The compact SwiftUI workspace panel exposes open/create, reconcile, rebuild, status editing, references, context, and event loading without adding a recursive file browser.
+- Implementation and recovery rules are recorded in [`../docs/WORKSPACE.md`](../docs/WORKSPACE.md).
+
 ## Exit Decision
 
-Proceed when the workspace can be trusted as durable state independently of chat sessions and derived indexes.
+**Pass on 2026-08-25.** The filesystem workspace and reference manifest reopen independently of chat sessions, and the SQLite index can be deleted and rebuilt without loss of canonical state. Proceed to Phase 06 — Capture.

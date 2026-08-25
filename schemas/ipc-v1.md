@@ -16,6 +16,15 @@ Peers accept different minor versions and reject different major versions. Reque
 | `core.health` | `{}` | `{ "status": "healthy" }` |
 | `agents.list` | `{}` | Last cached `AgentRegistrySnapshot`; does not launch probes |
 | `agents.refresh` | `{}` | Runs discovery and returns the new `AgentRegistrySnapshot` |
+| `workspace.open` | `root` | Creates/reopens a workspace and returns `WorkspaceSnapshot` |
+| `workspace.status` | `{}` | Returns the active `WorkspaceSnapshot` without reconciling |
+| `workspace.refresh` | `{}` | Reconciles external changes and returns `WorkspaceSnapshot` |
+| `workspace.write` | `path`, `content`, optional `provenance` | Atomically writes a canonical workspace file and returns `WorkspaceSnapshot` |
+| `workspace.reference.add` | `path` | Adds an external directory reference and returns `WorkspaceSnapshot` |
+| `workspace.reference.remove` | `reference_id` | Removes a reference without deleting external content |
+| `workspace.events` | optional `limit` | Returns up to 500 ordered workspace events |
+| `workspace.rebuild` | `{}` | Rebuilds the derived SQLite index and returns `WorkspaceSnapshot` |
+| `workspace.context` | `scope`, optional `path`/`reference_id` | Returns an explicit bounded `WorkspaceContextSlice` |
 | `session.create` | `agent_id`, optional `cwd` | Creates an ACP process/session and returns a `SessionDescriptor` |
 | `session.get` | `session_id` | Returns the current `SessionDescriptor` |
 | `session.prompt` | `session_id`, `text` | Accepts a run and returns `run_id` plus the ACP request correlation ID |
@@ -52,6 +61,20 @@ Peers accept different minor versions and reject different major versions. Reque
 ```
 
 Status is one of `unavailable`, `ready`, `unauthenticated`, `incompatible`, or `failed`. `enforced_session_mode` is the exact ACP mode Vela must successfully set after `session/new` and before returning a ready `SessionDescriptor`. A refresh increments `generation`; clients should ignore an older result arriving after a newer one.
+
+## Workspace contract
+
+`WorkspaceSnapshot` contains the canonical root, creation timestamp, current `STATUS.md` and `INBOX.md` text, explicit references, derived indexed-file count, and latest event ID. Filesystem content and `context/REFERENCES.json` are canonical; SQLite details do not cross IPC.
+
+`workspace.write` provenance may be `user`, `agent`, `tool`, or `scheduler` and defaults to `user`. Core assigns `external_filesystem` and `system`. Workspace operation failures use `workspace_error` and retain the request ID.
+
+`workspace.context` scopes are:
+
+- `status`: no additional parameters; returns status and inbox.
+- `workspace_path`: requires one relative `path`.
+- `reference_path`: requires `reference_id` and a relative `path`.
+
+Each returned file is capped at 32 KiB and carries `truncated`. Paths cannot traverse outside their selected root. See [`../docs/WORKSPACE.md`](../docs/WORKSPACE.md) for ownership, indexing, watcher, and recovery semantics.
 
 ## Agent events
 
