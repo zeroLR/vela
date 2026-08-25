@@ -38,7 +38,9 @@ public final class CoreProcessSupervisor: ObservableObject {
         try? FileManager.default.removeItem(atPath: socketPath)
         let process = Process()
         process.executableURL = executableURL
-        process.arguments = ["--socket", socketPath]
+        // `--exit-with-parent` makes Core shut itself down if this app dies without
+        // running its termination path, so a crash cannot leave an orphan behind.
+        process.arguments = ["--socket", socketPath, "--exit-with-parent"]
         process.environment = ProcessInfo.processInfo.environment.merging(environmentOverrides) { _, override in override }
         process.standardOutput = FileHandle.standardOutput
         process.standardError = FileHandle.standardError

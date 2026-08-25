@@ -30,4 +30,9 @@ cargo build --manifest-path core/Cargo.toml --workspace
 cargo test --manifest-path core/Cargo.toml --workspace
 ```
 
+The executable takes `--socket <path>` and the optional `--exit-with-parent`, which
+makes an orphaned Core shut down instead of outliving a crashed supervisor (see
+[`docs/IPC_LIFECYCLE.md`](../docs/IPC_LIFECYCLE.md)). Unknown arguments exit with
+status 2 rather than being ignored.
+
 Discovery checks `PATH`, common macOS binary locations, and the optional `VELA_HARNESS_CONFIG` file. Ready adapters can create ACP v1 sessions, stream normalized events, cancel prompts, and pause permission responders until Vela resolves them. Vela does not install adapters or read provider credential stores. ACP/provider-specific wire types remain inside `acp-runtime` and do not leak into Vela domain or IPC contracts.

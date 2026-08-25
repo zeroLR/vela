@@ -1,9 +1,11 @@
 use std::{
     collections::BTreeMap,
     env,
+    future::pending,
+    os::unix::process::parent_id,
     path::PathBuf,
     sync::atomic::{AtomicU64, Ordering},
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use serde_json::{json, Value};
@@ -13,24 +15,66 @@ use tracing::{
     Event, Metadata, Subscriber,
 };
 
-fn socket_path() -> Result<PathBuf, String> {
+const USAGE: &str = "usage: vela-core --socket <path> [--exit-with-parent]";
+
+/// How often an orphaned process notices that its supervisor is gone.
+const SUPERVISOR_POLL_INTERVAL: Duration = Duration::from_millis(250);
+
+/// Orphans are reparented to `launchd`/`init`.
+const INIT_PROCESS_ID: u32 = 1;
+
+struct Arguments {
+    socket_path: PathBuf,
+    exit_with_parent: bool,
+}
+
+fn arguments() -> Result<Arguments, String> {
+    let mut socket_path = None;
+    let mut exit_with_parent = false;
     let mut args = env::args().skip(1);
     while let Some(argument) = args.next() {
-        if argument == "--socket" {
-            return args
-                .next()
-                .map(PathBuf::from)
-                .ok_or_else(|| "--socket requires a path".to_owned());
+        match argument.as_str() {
+            "--socket" => {
+                socket_path = Some(
+                    args.next()
+                        .map(PathBuf::from)
+                        .ok_or_else(|| "--socket requires a path".to_owned())?,
+                );
+            }
+            "--exit-with-parent" => exit_with_parent = true,
+            unknown => return Err(format!("unknown argument {unknown}. {USAGE}")),
         }
     }
-    Err("usage: vela-core --socket <path>".to_owned())
+    Ok(Arguments {
+        socket_path: socket_path.ok_or_else(|| USAGE.to_owned())?,
+        exit_with_parent,
+    })
+}
+
+/// A supervisor that dies without terminating Core leaves an orphan holding the
+/// socket. The orphan is reparented, so a changed parent process ID is the exit
+/// signal. A parent of `init` also counts: a supervisor that died before Core was
+/// scheduled leaves this process already reparented, and `--exit-with-parent`
+/// states that Core was not launched by `launchd` directly.
+///
+/// The socket file is deliberately left in place. The next Core removes a stale
+/// socket when it binds, so deleting it here could remove a successor's live socket.
+async fn wait_for_supervisor_exit(supervisor_process_id: u32) {
+    loop {
+        tokio::time::sleep(SUPERVISOR_POLL_INTERVAL).await;
+        let current_parent = parent_id();
+        if current_parent != supervisor_process_id || current_parent == INIT_PROCESS_ID {
+            return;
+        }
+    }
 }
 
 #[tokio::main]
 async fn main() {
     let _ = tracing::subscriber::set_global_default(JsonSubscriber::default());
-    let socket_path = match socket_path() {
-        Ok(path) => path,
+    let supervisor_process_id = parent_id();
+    let arguments = match arguments() {
+        Ok(arguments) => arguments,
         Err(message) => {
             tracing::error!(component = "core", %message, "invalid arguments");
             std::process::exit(2);
@@ -40,11 +84,32 @@ async fn main() {
     tracing::info!(
         component = "core",
         process_version = env!("CARGO_PKG_VERSION"),
+        exit_with_parent = arguments.exit_with_parent,
         "vela-core starting"
     );
-    if let Err(error) = assistant_ipc::serve(&socket_path).await {
-        tracing::error!(component = "core", %error, "IPC server failed");
-        std::process::exit(1);
+
+    let supervisor_exit = async {
+        if arguments.exit_with_parent {
+            wait_for_supervisor_exit(supervisor_process_id).await;
+        } else {
+            pending::<()>().await;
+        }
+    };
+
+    tokio::select! {
+        result = assistant_ipc::serve(&arguments.socket_path) => {
+            if let Err(error) = result {
+                tracing::error!(component = "core", %error, "IPC server failed");
+                std::process::exit(1);
+            }
+        }
+        () = supervisor_exit => {
+            tracing::info!(
+                component = "core",
+                supervisor_process_id,
+                "supervising process exited, shutting down"
+            );
+        }
     }
 }
 

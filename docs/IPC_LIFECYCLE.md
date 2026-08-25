@@ -17,6 +17,19 @@ Core readiness is the creation of its configured Unix socket. IPC readiness addi
 
 Each stream request owns a request ID. Ordered pushed events retain that ID until exactly one `stream.completed` or `stream.cancelled` terminal event. The Swift client rejects later events for a terminal request.
 
+## Orphan prevention
+
+The app terminates Core on quit, but a crashed or `SIGKILL`ed app never runs that
+path, and a Core that outlives its supervisor keeps holding the socket. The app
+therefore launches Core with `--exit-with-parent`: Core records its parent process
+ID at startup and shuts down once that ID changes, or once it is `launchd`, since
+both mean the supervising app is gone. Detection takes at most 250ms.
+
+Core does not delete the socket file on that path. The next Core removes a stale
+socket when it binds, so an exiting orphan could otherwise delete a successor's
+live socket. Without the flag Core keeps running when orphaned, so a manually
+launched Core is unaffected.
+
 Development executable discovery order is:
 
 1. `VELA_CORE_PATH`;
