@@ -61,6 +61,117 @@ public enum JSONValue: Codable, Equatable, Sendable {
         guard case let .number(value) = self else { return nil }
         return value
     }
+
+    public var boolValue: Bool? {
+        guard case let .bool(value) = self else { return nil }
+        return value
+    }
+
+    public var objectValue: [String: JSONValue]? {
+        guard case let .object(value) = self else { return nil }
+        return value
+    }
+
+    public var arrayValue: [JSONValue]? {
+        guard case let .array(value) = self else { return nil }
+        return value
+    }
+}
+
+public enum AgentStatus: String, Codable, Equatable, Sendable {
+    case unavailable
+    case ready
+    case unauthenticated
+    case incompatible
+    case failed
+}
+
+public enum AgentSource: String, Codable, Equatable, Sendable {
+    case builtIn = "built_in"
+    case userDefined = "user_defined"
+}
+
+public struct AgentDescriptor: Identifiable, Codable, Equatable, Sendable {
+    public let id: String
+    public let displayName: String
+    public let adapter: String
+    public let source: AgentSource
+    public let status: AgentStatus
+    public let executablePath: String?
+    public let version: String?
+    public let protocolVersion: String?
+    public let capabilities: [String]
+    public let authMethods: [String]
+    public let diagnostic: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case displayName = "display_name"
+        case adapter
+        case source
+        case status
+        case executablePath = "executable_path"
+        case version
+        case protocolVersion = "protocol_version"
+        case capabilities
+        case authMethods = "auth_methods"
+        case diagnostic
+    }
+
+    init?(value: JSONValue) {
+        guard
+            let object = value.objectValue,
+            let id = object["id"]?.stringValue,
+            let displayName = object["display_name"]?.stringValue,
+            let adapter = object["adapter"]?.stringValue,
+            let sourceValue = object["source"]?.stringValue,
+            let source = AgentSource(rawValue: sourceValue),
+            let statusValue = object["status"]?.stringValue,
+            let status = AgentStatus(rawValue: statusValue)
+        else { return nil }
+
+        self.id = id
+        self.displayName = displayName
+        self.adapter = adapter
+        self.source = source
+        self.status = status
+        executablePath = object["executable_path"]?.stringValue
+        version = object["version"]?.stringValue
+        protocolVersion = object["protocol_version"]?.stringValue
+        capabilities = object["capabilities"]?.arrayValue?.compactMap(\.stringValue) ?? []
+        authMethods = object["auth_methods"]?.arrayValue?.compactMap(\.stringValue) ?? []
+        diagnostic = object["diagnostic"]?.stringValue
+    }
+}
+
+public struct AgentRegistrySnapshot: Equatable, Sendable {
+    public static let empty = AgentRegistrySnapshot(generation: 0, refreshedAtMilliseconds: 0, agents: [])
+
+    public let generation: UInt64
+    public let refreshedAtMilliseconds: UInt64
+    public let agents: [AgentDescriptor]
+
+    public init(generation: UInt64, refreshedAtMilliseconds: UInt64, agents: [AgentDescriptor]) {
+        self.generation = generation
+        self.refreshedAtMilliseconds = refreshedAtMilliseconds
+        self.agents = agents
+    }
+
+    init?(result: [String: JSONValue]) {
+        guard
+            let generationValue = result["generation"]?.numberValue,
+            let generation = UInt64(exactly: generationValue),
+            let refreshedAtValue = result["refreshed_at_ms"]?.numberValue,
+            let refreshedAt = UInt64(exactly: refreshedAtValue),
+            let agentValues = result["agents"]?.arrayValue
+        else { return nil }
+        let agents = agentValues.compactMap(AgentDescriptor.init(value:))
+        guard agents.count == agentValues.count else { return nil }
+
+        self.generation = generation
+        refreshedAtMilliseconds = refreshedAt
+        self.agents = agents
+    }
 }
 
 public struct IPCErrorPayload: Codable, Equatable, Sendable {

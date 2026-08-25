@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 domain.workspace = true
+harness-discovery.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true

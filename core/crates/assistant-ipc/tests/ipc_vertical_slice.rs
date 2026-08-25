@@ -1,10 +1,14 @@
 use std::{
     io,
     path::PathBuf,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
     time::Duration,
 };
 
+use harness_discovery::{DiscoveryOptions, DiscoveryService};
 use serde_json::{json, Value};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -26,7 +30,16 @@ impl TestServer {
             std::process::id()
         ));
         let server_path = path.clone();
-        let task = tokio::spawn(async move { assistant_ipc::serve(server_path).await });
+        let discovery = Arc::new(DiscoveryService::new(DiscoveryOptions {
+            path: None,
+            known_directories: Vec::new(),
+            config_path: None,
+            version_timeout: Duration::from_millis(50),
+            initialize_timeout: Duration::from_millis(50),
+        }));
+        let task = tokio::spawn(async move {
+            assistant_ipc::serve_with_discovery(server_path, discovery).await
+        });
 
         for _ in 0..100 {
             if path.exists() {
@@ -158,6 +171,30 @@ async fn malformed_input_returns_an_error_without_breaking_the_connection() {
     send(&mut writer, &request("health-1", "core.health", json!({}))).await;
     let health = receive(&mut reader).await;
     assert_eq!(health["result"]["status"], "healthy");
+}
+
+#[tokio::test]
+async fn agent_registry_can_be_listed_and_explicitly_refreshed() {
+    let server = TestServer::start("agents").await;
+    let (mut reader, mut writer) = server.connect().await;
+
+    send(&mut writer, &request("agents-1", "agents.list", json!({}))).await;
+    let initial = receive(&mut reader).await;
+    assert_eq!(initial["result"]["generation"], 0);
+    assert_eq!(initial["result"]["agents"], json!([]));
+
+    send(
+        &mut writer,
+        &request("agents-2", "agents.refresh", json!({})),
+    )
+    .await;
+    let refreshed = receive(&mut reader).await;
+    assert_eq!(refreshed["result"]["generation"], 1);
+    assert_eq!(refreshed["result"]["agents"][0]["id"], "claude");
+    assert_eq!(refreshed["result"]["agents"][0]["status"], "unavailable");
+
+    send(&mut writer, &request("agents-3", "agents.list", json!({}))).await;
+    assert_eq!(receive(&mut reader).await["result"], refreshed["result"]);
 }
 
 #[tokio::test]

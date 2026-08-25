@@ -45,4 +45,19 @@ struct IPCModelsTests {
         #expect(ProtocolVersion.current.isCompatible(with: ProtocolVersion(major: 1, minor: 9)))
         #expect(!ProtocolVersion.current.isCompatible(with: ProtocolVersion(major: 2, minor: 0)))
     }
+
+    @Test("agent registry responses preserve normalized discovery fields")
+    func agentRegistry() throws {
+        let message = try JSONDecoder().decode(
+            IPCMessage.self,
+            from: Data(#"{"version":{"major":1,"minor":0},"id":"agents-1","result":{"generation":3,"refreshed_at_ms":42,"agents":[{"id":"codex","display_name":"Codex","adapter":"codex-acp","source":"built_in","status":"ready","executable_path":"/usr/local/bin/codex-acp","version":"0.8.1","protocol_version":"1","capabilities":["prompt.image","session.list"],"auth_methods":[],"diagnostic":null}]}}"#.utf8)
+        )
+        let result = try #require(message.result)
+        let snapshot = try #require(AgentRegistrySnapshot(result: result))
+
+        #expect(snapshot.generation == 3)
+        #expect(snapshot.agents.count == 1)
+        #expect(snapshot.agents[0].status == .ready)
+        #expect(snapshot.agents[0].capabilities == ["prompt.image", "session.list"])
+    }
 }

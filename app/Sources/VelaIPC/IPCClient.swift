@@ -16,6 +16,8 @@ public final class IPCClient: ObservableObject {
     @Published public private(set) var transcript = StreamTranscript()
     @Published public private(set) var diagnostics: [String] = []
     @Published public private(set) var activeStreamRequestID: String?
+    @Published public private(set) var agentRegistry = AgentRegistrySnapshot.empty
+    @Published public private(set) var isRefreshingAgents = false
 
     private var connection: NWConnection?
     private var receiveBuffer = Data()
@@ -46,6 +48,7 @@ public final class IPCClient: ObservableObject {
         receiveBuffer.removeAll(keepingCapacity: true)
         pendingMethods.removeAll()
         activeStreamRequestID = nil
+        isRefreshingAgents = false
         state = reason == nil ? .disconnected : .degraded
         if let reason {
             appendDiagnostic(reason)
@@ -55,6 +58,19 @@ public final class IPCClient: ObservableObject {
     @discardableResult
     public func requestHealth() -> String? {
         send(method: "core.health")
+    }
+
+    @discardableResult
+    public func listAgents() -> String? {
+        send(method: "agents.list")
+    }
+
+    @discardableResult
+    public func refreshAgents() -> String? {
+        guard !isRefreshingAgents else { return nil }
+        guard let id = send(method: "agents.refresh") else { return nil }
+        isRefreshingAgents = true
+        return id
     }
 
     @discardableResult
@@ -190,12 +206,28 @@ public final class IPCClient: ObservableObject {
         let method = pendingMethods.removeValue(forKey: id) ?? "unknown"
         if let error = message.error {
             appendDiagnostic("\(method) failed [\(error.code)]: \(error.message)")
+            if method == "agents.refresh" {
+                isRefreshingAgents = false
+            }
             if method == "core.hello" {
                 state = .degraded
             }
         } else if method == "core.hello" {
             state = .ready
             appendDiagnostic("IPC v1 handshake complete")
+            _ = refreshAgents()
+        } else if method == "agents.list" || method == "agents.refresh" {
+            if method == "agents.refresh" {
+                isRefreshingAgents = false
+            }
+            guard let result = message.result, let snapshot = AgentRegistrySnapshot(result: result) else {
+                appendDiagnostic("\(method) returned an invalid agent registry")
+                return
+            }
+            if snapshot.generation >= agentRegistry.generation {
+                agentRegistry = snapshot
+            }
+            appendDiagnostic("\(method) found \(snapshot.agents.count) agent definitions")
         } else {
             appendDiagnostic("\(method) completed [\(id)]")
         }

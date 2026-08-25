@@ -50,13 +50,15 @@ struct DiagnosticsView: View {
                     .disabled(supervisor.state != .running)
             }
 
+            agentList
+
             HSplitView {
                 eventList
                 diagnosticList
             }
         }
         .padding(20)
-        .frame(minWidth: 900, minHeight: 560)
+        .frame(minWidth: 900, minHeight: 720)
     }
 
     private var statusBadge: some View {
@@ -85,6 +87,62 @@ struct DiagnosticsView: View {
                 Spacer()
                 Button("Clear") { client.clearEvents() }.buttonStyle(.link)
             }
+        }
+    }
+
+    private var agentList: some View {
+        GroupBox {
+            List(client.agentRegistry.agents) { agent in
+                HStack(alignment: .top, spacing: 12) {
+                    Text(agent.status.rawValue)
+                        .font(.caption.bold())
+                        .foregroundStyle(statusColor(agent.status))
+                        .frame(width: 105, alignment: .leading)
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack {
+                            Text(agent.displayName).font(.headline)
+                            Text(agent.adapter).font(.caption).foregroundStyle(.secondary)
+                            if let version = agent.version {
+                                Text(version).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        if let path = agent.executablePath {
+                            Text(path).font(.system(.caption, design: .monospaced))
+                                .textSelection(.enabled)
+                        }
+                        if !agent.capabilities.isEmpty {
+                            Text(agent.capabilities.joined(separator: " · "))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        if let diagnostic = agent.diagnostic {
+                            Text(diagnostic).font(.caption).foregroundStyle(.orange)
+                        }
+                    }
+                    Spacer()
+                }
+            }
+            .frame(height: 190)
+        } label: {
+            HStack {
+                Text("ACP Harnesses · generation \(client.agentRegistry.generation)")
+                Spacer()
+                if client.isRefreshingAgents {
+                    ProgressView().controlSize(.small)
+                }
+                Button("Refresh") { client.refreshAgents() }
+                    .buttonStyle(.link)
+                    .disabled(client.state != .ready || client.isRefreshingAgents)
+            }
+        }
+    }
+
+    private func statusColor(_ status: AgentStatus) -> Color {
+        switch status {
+        case .ready: .green
+        case .unavailable: .secondary
+        case .unauthenticated: .orange
+        case .incompatible, .failed: .red
         }
     }
 

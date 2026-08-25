@@ -1,6 +1,7 @@
 use std::{collections::HashMap, io, path::Path, sync::Arc, time::Duration};
 
 use domain::ProtocolVersion;
+use harness_discovery::{DiscoveryOptions, DiscoveryService};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::{
@@ -23,6 +24,17 @@ struct Request {
 }
 
 pub async fn serve(socket_path: impl AsRef<Path>) -> io::Result<()> {
+    serve_with_discovery(
+        socket_path,
+        Arc::new(DiscoveryService::new(DiscoveryOptions::from_environment())),
+    )
+    .await
+}
+
+pub async fn serve_with_discovery(
+    socket_path: impl AsRef<Path>,
+    discovery: Arc<DiscoveryService>,
+) -> io::Result<()> {
     let socket_path = socket_path.as_ref();
     if socket_path.exists() {
         std::fs::remove_file(socket_path)?;
@@ -37,15 +49,16 @@ pub async fn serve(socket_path: impl AsRef<Path>) -> io::Result<()> {
     loop {
         let (stream, _) = listener.accept().await?;
         tracing::info!(component = "ipc", "client connected");
+        let discovery = Arc::clone(&discovery);
         tokio::spawn(async move {
-            if let Err(error) = handle_connection(stream).await {
+            if let Err(error) = handle_connection(stream, discovery).await {
                 tracing::warn!(component = "ipc", error = %error, "client connection ended");
             }
         });
     }
 }
 
-async fn handle_connection(stream: UnixStream) -> io::Result<()> {
+async fn handle_connection(stream: UnixStream, discovery: Arc<DiscoveryService>) -> io::Result<()> {
     let (read_half, write_half) = stream.into_split();
     let writer = Arc::new(Mutex::new(write_half));
     let streams: ActiveStreams = Arc::new(Mutex::new(HashMap::new()));
@@ -103,6 +116,14 @@ async fn handle_connection(stream: UnixStream) -> io::Result<()> {
                     &success_response(&request.id, json!({ "status": "healthy" })),
                 )
                 .await?;
+            }
+            "agents.list" => {
+                let snapshot = discovery.snapshot().await;
+                write_value(&writer, &success_response(&request.id, json!(snapshot))).await?;
+            }
+            "agents.refresh" => {
+                let snapshot = discovery.refresh().await;
+                write_value(&writer, &success_response(&request.id, json!(snapshot))).await?;
             }
             "stream.start" => {
                 let count = request
