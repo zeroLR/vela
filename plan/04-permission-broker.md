@@ -46,16 +46,16 @@ A real or fake ACP session can pause on a permission request, display a native p
 
 ## Acceptance Criteria
 
-- [ ] Permission requests are represented by Vela-owned domain types.
-- [ ] Native UI shows enough detail to make a meaningful decision.
-- [ ] `Allow once` applies only to the current request.
-- [ ] `Allow for session` is limited to the documented session scope.
-- [ ] `Deny` is propagated cleanly to the harness.
-- [ ] Closing/dismissing the UI resolves according to an explicit safe default.
-- [ ] Concurrent permission requests do not overwrite each other.
-- [ ] Session cancellation resolves pending requests and cleans state.
-- [ ] Decisions are written to structured events with session/request provenance.
-- [ ] Tests cover allow, deny, session grant, timeout/dismissal, concurrent requests, and cancellation.
+- [x] Permission requests are represented by Vela-owned domain types.
+- [x] Native UI shows enough detail to make a meaningful decision.
+- [x] `Allow once` applies only to the current request.
+- [x] `Allow for session` is limited to the documented session scope.
+- [x] `Deny` is propagated cleanly to the harness.
+- [x] Closing/dismissing the UI resolves according to an explicit safe default.
+- [x] Concurrent permission requests do not overwrite each other.
+- [x] Session cancellation resolves pending requests and cleans state.
+- [x] Decisions are written to structured events with session/request provenance.
+- [x] Tests cover allow, deny, session grant, timeout/dismissal, concurrent requests, and cancellation.
 
 ## Validation Procedure
 
@@ -66,12 +66,16 @@ A real or fake ACP session can pause on a permission request, display a native p
 5. Verify event history and no stale grants leak into a new session.
 6. Exercise a harmless real-harness permission request when supported.
 
+The 2026-08-25 real-adapter attempt used `codex-acp` 1.6.2 and `claude-agent-acp` 0.70.0. Both inherited provider policies executed a harmless `/private/tmp` file tool call without emitting ACP `session/request_permission`. Codex was also retried with test-only `agent`, `on-request`, and `workspace-write` settings, but `/private/tmp` remained an allowed root and produced no request. An outside-workspace write was not attempted because a missing callback could mutate user files. Real permission mediation therefore remains unverified rather than counted as passing evidence. All zero-byte temporary files were removed. Deterministic fake-harness and Swift↔Rust cross-runtime paths cover the complete broker lifecycle.
+
 ## Evidence to Capture
 
 - Permission state machine.
 - Screenshots of native decision UI.
 - Example audit event.
 - Scope rules for session grants.
+
+Implementation evidence is recorded in [`../docs/PERMISSION_BROKER.md`](../docs/PERMISSION_BROKER.md), [`../schemas/ipc-v1.md`](../schemas/ipc-v1.md), and the Rust/Swift integration suites.
 
 ## Exit Gate — Execution Plane
 
@@ -80,3 +84,5 @@ After this phase, evaluate the first product gate:
 > Can Vela reliably discover, control, observe, and safely mediate a local ACP-compatible agent runtime?
 
 If the answer is not clearly yes, revise the execution plane before building workspace and presence features.
+
+Gate result on 2026-08-25: **revise**. Vela reliably mediates adapters that emit ACP permission requests, but the installed real-adapter configurations did not emit one for the safe test. Do not start Phase 05 until a disposable sandbox can prove a real provider request cannot bypass the broker.

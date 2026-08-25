@@ -15,7 +15,7 @@ Expected responsibilities:
 
 Do not place ACP/provider protocol logic here. The app consumes Vela-owned IPC/domain events only.
 
-The Phase 00–03 Swift package contains a native SwiftUI diagnostics app, an IPC client, and a `vela-core` process supervisor. The diagnostics screen discovers agents, creates a selected ACP session, submits text, renders Vela-owned streaming events, and cancels the active run without provider-specific Swift logic.
+The Phase 00–04 Swift package contains a native SwiftUI diagnostics app, an IPC client, and a `vela-core` process supervisor. The diagnostics screen discovers agents, creates a selected ACP session, submits text, renders Vela-owned streaming events, cancels the active run, and queues native permission decisions without provider-specific Swift logic.
 
 From the repository root:
 

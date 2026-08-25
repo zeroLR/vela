@@ -20,6 +20,9 @@ Peers accept different minor versions and reject different major versions. Reque
 | `session.get` | `session_id` | Returns the current `SessionDescriptor` |
 | `session.prompt` | `session_id`, `text` | Accepts a run and returns `run_id` plus the ACP request correlation ID |
 | `session.cancel` | `session_id`, `run_id` | Requests ACP `session/cancel` for the active run |
+| `permissions.pending` | optional `session_id` | Returns the current Vela-owned permission request queue |
+| `permissions.history` | optional `session_id` | Returns structured permission audit records |
+| `permission.resolve` | `permission_id`, `session_id`, `run_id`, `decision` | Resolves one pending request; decision is `allow_once`, `allow_session`, or `deny` |
 | `stream.start` | `count`, `interval_ms` | Stream acceptance; subsequent events use this request ID |
 | `stream.cancel` | `target_request_id` | Whether cancellation was requested |
 
@@ -58,6 +61,7 @@ After `session.prompt` succeeds, Core pushes `agent.event` messages. The `data` 
 - `tool_started`
 - `tool_finished`
 - `permission_requested`
+- `permission_resolved`
 - `usage_updated`
 - `completed`
 - `cancelled`
@@ -79,7 +83,15 @@ After `session.prompt` succeeds, Core pushes `agent.event` messages. The `data` 
 }
 ```
 
-`completed`, `cancelled`, and `failed` are terminal. Core emits exactly one terminal event per accepted run; clients must ignore any later event carrying that run ID. Permission requests are surfaced but safely cancelled until the Phase 04 permission broker owns decisions.
+`completed`, `cancelled`, and `failed` are terminal. Core emits exactly one terminal event per accepted run; clients must ignore any later event carrying that run ID.
+
+## Permission contract
+
+`permission_requested` contains a nested `request` with a Vela permission ID, agent/session/run/request provenance, tool-call ID, normalized category, title, optional target, ACP option metadata, and creation/expiry timestamps. Categories are `filesystem.read`, `filesystem.write`, `shell.execute`, `network.open_url`, `mcp.invoke`, and `other`.
+
+`permission_resolved` contains a nested audit `record`. Its status is `allowed`, `denied`, `timed_out`, or `cancelled`; source is `user`, `session_grant`, `timeout`, or `cancellation`. Stale, duplicate, or provenance-mismatched `permission.resolve` requests fail with `permission_resolution_failed`.
+
+`Allow for session` is deliberately narrower than ACP `allow_always`: Vela records an exact `(session, category, title, target)` grant and selects an ACP `allow_once` option for each matching request. Grants are deleted with the Vela session and never leak to another session. A missing allow-once option disables both Vela allow decisions. Deny selects ACP `reject_once` when offered; timeout, cancellation, or absence of a safely scoped option returns ACP `cancelled`.
 
 ## Stream events
 
