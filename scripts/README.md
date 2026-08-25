@@ -11,3 +11,9 @@ Expected responsibilities:
 - release/update-feed helpers
 
 Scripts should remain thin wrappers around reproducible commands. Core product logic and environment-specific secrets must not live here.
+
+Run all Phase 00/01 checks from the repository root:
+
+```bash
+scripts/check.sh
+```

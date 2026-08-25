@@ -52,6 +52,18 @@ Vela is intentionally built as a sequence of independently testable vertical sli
 
 The detailed, acceptance-test-driven execution plan lives in [`plan/`](plan/README.md).
 
+## Development
+
+Phase 00/01 establish the Swift/Rust skeleton and the first local IPC vertical slice. The current debug app supervises `vela-core`, performs an IPC v1 handshake, renders a deterministic pushed event stream, supports cancellation, and exposes Core termination/restart behavior.
+
+```bash
+cargo build --manifest-path core/Cargo.toml --workspace
+scripts/check.sh
+VELA_CORE_PATH="$PWD/core/target/debug/vela-core" swift run --package-path app VelaApp
+```
+
+See [`schemas/ipc-v1.md`](schemas/ipc-v1.md) for the wire contract and [`docs/IPC_LIFECYCLE.md`](docs/IPC_LIFECYCLE.md) for supervision/recovery semantics.
+
 ## Status
 
-Early architecture and validation planning. The project is optimized for dogfooding first: each milestone should produce something usable and measurable before the next layer is introduced.
+Phase 00/01 implementation and validation. ACP, workspace, capture, and avatar behavior remain intentionally out of scope until the IPC execution boundary passes its acceptance checks.
