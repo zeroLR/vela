@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+acp-runtime.workspace = true
 domain.workspace = true
 harness-discovery.workspace = true
 serde.workspace = true

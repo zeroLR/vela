@@ -1,5 +1,12 @@
-use std::{collections::HashMap, io, path::Path, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    io,
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::Duration,
+};
 
+use acp_runtime::SessionManager;
 use domain::ProtocolVersion;
 use harness_discovery::{DiscoveryOptions, DiscoveryService};
 use serde::Deserialize;
@@ -24,9 +31,10 @@ struct Request {
 }
 
 pub async fn serve(socket_path: impl AsRef<Path>) -> io::Result<()> {
-    serve_with_discovery(
+    serve_with_services(
         socket_path,
         Arc::new(DiscoveryService::new(DiscoveryOptions::from_environment())),
+        Arc::new(SessionManager::default()),
     )
     .await
 }
@@ -34,6 +42,14 @@ pub async fn serve(socket_path: impl AsRef<Path>) -> io::Result<()> {
 pub async fn serve_with_discovery(
     socket_path: impl AsRef<Path>,
     discovery: Arc<DiscoveryService>,
+) -> io::Result<()> {
+    serve_with_services(socket_path, discovery, Arc::new(SessionManager::default())).await
+}
+
+pub async fn serve_with_services(
+    socket_path: impl AsRef<Path>,
+    discovery: Arc<DiscoveryService>,
+    sessions: Arc<SessionManager>,
 ) -> io::Result<()> {
     let socket_path = socket_path.as_ref();
     if socket_path.exists() {
@@ -50,15 +66,20 @@ pub async fn serve_with_discovery(
         let (stream, _) = listener.accept().await?;
         tracing::info!(component = "ipc", "client connected");
         let discovery = Arc::clone(&discovery);
+        let sessions = Arc::clone(&sessions);
         tokio::spawn(async move {
-            if let Err(error) = handle_connection(stream, discovery).await {
+            if let Err(error) = handle_connection(stream, discovery, sessions).await {
                 tracing::warn!(component = "ipc", error = %error, "client connection ended");
             }
         });
     }
 }
 
-async fn handle_connection(stream: UnixStream, discovery: Arc<DiscoveryService>) -> io::Result<()> {
+async fn handle_connection(
+    stream: UnixStream,
+    discovery: Arc<DiscoveryService>,
+    sessions: Arc<SessionManager>,
+) -> io::Result<()> {
     let (read_half, write_half) = stream.into_split();
     let writer = Arc::new(Mutex::new(write_half));
     let streams: ActiveStreams = Arc::new(Mutex::new(HashMap::new()));
@@ -124,6 +145,202 @@ async fn handle_connection(stream: UnixStream, discovery: Arc<DiscoveryService>)
             "agents.refresh" => {
                 let snapshot = discovery.refresh().await;
                 write_value(&writer, &success_response(&request.id, json!(snapshot))).await?;
+            }
+            "session.create" => {
+                let Some(agent_id) = request.params.get("agent_id").and_then(Value::as_str) else {
+                    write_value(
+                        &writer,
+                        &error_response(
+                            Some(&request.id),
+                            "invalid_params",
+                            "agent_id is required",
+                        ),
+                    )
+                    .await?;
+                    continue;
+                };
+                let cwd = request
+                    .params
+                    .get("cwd")
+                    .and_then(Value::as_str)
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| {
+                        std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"))
+                    });
+                let cwd = match std::fs::canonicalize(&cwd) {
+                    Ok(path) if path.is_dir() => path,
+                    _ => {
+                        write_value(
+                            &writer,
+                            &error_response(
+                                Some(&request.id),
+                                "invalid_cwd",
+                                format!("Not a directory: {}", cwd.display()),
+                            ),
+                        )
+                        .await?;
+                        continue;
+                    }
+                };
+                let spec = match discovery.launch_spec(agent_id).await {
+                    Ok(spec) => spec,
+                    Err(message) => {
+                        write_value(
+                            &writer,
+                            &error_response(Some(&request.id), "agent_not_ready", message),
+                        )
+                        .await?;
+                        continue;
+                    }
+                };
+                match sessions.create(agent_id.to_owned(), spec, cwd).await {
+                    Ok(session) => {
+                        write_value(&writer, &success_response(&request.id, json!(session))).await?
+                    }
+                    Err(message) => {
+                        write_value(
+                            &writer,
+                            &error_response(Some(&request.id), "session_create_failed", message),
+                        )
+                        .await?
+                    }
+                }
+            }
+            "session.get" => {
+                let Some(session_id) = request.params.get("session_id").and_then(Value::as_str)
+                else {
+                    write_value(
+                        &writer,
+                        &error_response(
+                            Some(&request.id),
+                            "invalid_params",
+                            "session_id is required",
+                        ),
+                    )
+                    .await?;
+                    continue;
+                };
+                match sessions.descriptor(session_id).await {
+                    Some(session) => {
+                        write_value(&writer, &success_response(&request.id, json!(session))).await?
+                    }
+                    None => {
+                        write_value(
+                            &writer,
+                            &error_response(
+                                Some(&request.id),
+                                "session_not_found",
+                                format!("Unknown session: {session_id}"),
+                            ),
+                        )
+                        .await?
+                    }
+                }
+            }
+            "session.prompt" => {
+                let Some(session_id) = request.params.get("session_id").and_then(Value::as_str)
+                else {
+                    write_value(
+                        &writer,
+                        &error_response(
+                            Some(&request.id),
+                            "invalid_params",
+                            "session_id is required",
+                        ),
+                    )
+                    .await?;
+                    continue;
+                };
+                let Some(text) = request
+                    .params
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .filter(|text| !text.trim().is_empty())
+                else {
+                    write_value(
+                        &writer,
+                        &error_response(Some(&request.id), "invalid_params", "text is required"),
+                    )
+                    .await?;
+                    continue;
+                };
+                match sessions
+                    .prompt(session_id, request.id.clone(), text.to_owned())
+                    .await
+                {
+                    Ok((accepted, mut receiver)) => {
+                        write_value(
+                            &writer,
+                            &success_response(
+                                &request.id,
+                                json!({
+                                    "session_id": session_id,
+                                    "run_id": accepted.run_id,
+                                    "acp_request_id": accepted.acp_request_id,
+                                }),
+                            ),
+                        )
+                        .await?;
+                        let task_writer = Arc::clone(&writer);
+                        stream_tasks.spawn(async move {
+                            while let Ok(agent_event) = receiver.recv().await {
+                                let terminal = agent_event.payload.is_terminal();
+                                if write_value(
+                                    &task_writer,
+                                    &event("agent.event", json!(agent_event)),
+                                )
+                                .await
+                                .is_err()
+                                    || terminal
+                                {
+                                    break;
+                                }
+                            }
+                        });
+                    }
+                    Err(message) => {
+                        write_value(
+                            &writer,
+                            &error_response(Some(&request.id), "prompt_failed", message),
+                        )
+                        .await?
+                    }
+                }
+            }
+            "session.cancel" => {
+                let session_id = request.params.get("session_id").and_then(Value::as_str);
+                let run_id = request.params.get("run_id").and_then(Value::as_str);
+                let (Some(session_id), Some(run_id)) = (session_id, run_id) else {
+                    write_value(
+                        &writer,
+                        &error_response(
+                            Some(&request.id),
+                            "invalid_params",
+                            "session_id and run_id are required",
+                        ),
+                    )
+                    .await?;
+                    continue;
+                };
+                match sessions.cancel(session_id, run_id).await {
+                    Ok(cancel_requested) => {
+                        write_value(
+                            &writer,
+                            &success_response(
+                                &request.id,
+                                json!({ "cancel_requested": cancel_requested }),
+                            ),
+                        )
+                        .await?
+                    }
+                    Err(message) => {
+                        write_value(
+                            &writer,
+                            &error_response(Some(&request.id), "cancel_failed", message),
+                        )
+                        .await?
+                    }
+                }
             }
             "stream.start" => {
                 let count = request

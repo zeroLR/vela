@@ -60,4 +60,17 @@ struct IPCModelsTests {
         #expect(snapshot.agents[0].status == .ready)
         #expect(snapshot.agents[0].capabilities == ["prompt.image", "session.list"])
     }
+
+    @Test("normalized agent events decode without ACP wire types")
+    func agentEvent() throws {
+        let message = try JSONDecoder().decode(
+            IPCMessage.self,
+            from: Data(#"{"version":{"major":1,"minor":0},"event":"agent.event","data":{"session_id":"session-1","run_id":"run-1","request_id":"request-1","sequence":2,"timestamp_ms":42,"kind":"text_delta","text":"hello"}}"#.utf8)
+        )
+        let data = try #require(message.data)
+        let event = try #require(AgentEvent(data: data))
+        #expect(event.sequence == 2)
+        #expect(event.payload == .textDelta("hello"))
+        #expect(!event.payload.isTerminal)
+    }
 }

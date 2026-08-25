@@ -5,6 +5,9 @@ struct DiagnosticsView: View {
     let environment: AppEnvironment
     @ObservedObject private var client: IPCClient
     @ObservedObject private var supervisor: CoreProcessSupervisor
+    @State private var selectedAgentID = ""
+    @State private var sessionCWD = FileManager.default.currentDirectoryPath
+    @State private var promptText = "Summarize this workspace briefly."
 
     init(environment: AppEnvironment) {
         self.environment = environment
@@ -51,6 +54,7 @@ struct DiagnosticsView: View {
             }
 
             agentList
+            sessionPanel
 
             HSplitView {
                 eventList
@@ -58,7 +62,12 @@ struct DiagnosticsView: View {
             }
         }
         .padding(20)
-        .frame(minWidth: 900, minHeight: 720)
+        .frame(minWidth: 900, minHeight: 900)
+        .onChange(of: client.agentRegistry.agents) { _, agents in
+            if !agents.contains(where: { $0.id == selectedAgentID && $0.status == .ready }) {
+                selectedAgentID = agents.first(where: { $0.status == .ready })?.id ?? ""
+            }
+        }
     }
 
     private var statusBadge: some View {
@@ -151,6 +160,67 @@ struct DiagnosticsView: View {
             List(Array(client.diagnostics.enumerated()), id: \.offset) { _, message in
                 Text(message).font(.system(.caption, design: .monospaced))
             }
+        }
+    }
+
+    private var sessionPanel: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Picker("Agent", selection: $selectedAgentID) {
+                        Text("Select a ready agent").tag("")
+                        ForEach(client.agentRegistry.agents.filter { $0.status == .ready }) { agent in
+                            Text(agent.displayName).tag(agent.id)
+                        }
+                    }
+                    .frame(width: 260)
+                    TextField("Working directory", text: $sessionCWD)
+                    Button("Create Session") {
+                        client.createSession(agentID: selectedAgentID, cwd: sessionCWD)
+                    }
+                    .disabled(selectedAgentID.isEmpty || client.isCreatingSession || client.activeRunID != nil)
+                }
+                HStack {
+                    TextField("Prompt", text: $promptText)
+                        .onSubmit { client.prompt(promptText) }
+                    Button("Send") { client.prompt(promptText) }
+                        .disabled(client.session == nil || client.activeRunID != nil)
+                    Button("Cancel") { client.cancelPrompt() }
+                        .disabled(client.activeRunID == nil)
+                    Button("Clear") { client.clearSessionEvents() }.buttonStyle(.link)
+                }
+                if let session = client.session {
+                    Text("Vela \(session.id) · ACP \(session.acpSessionID) · PID \(session.processID) · \(session.cwd)")
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+                List(client.sessionEvents) { event in
+                    HStack(alignment: .top) {
+                        Text("#\(event.sequence)").font(.caption.monospaced()).frame(width: 38, alignment: .trailing)
+                        Text(eventDescription(event.payload))
+                        Spacer()
+                        Text(event.runID).font(.caption.monospaced()).foregroundStyle(.secondary)
+                    }
+                }
+                .frame(height: 150)
+            }
+        } label: {
+            Text("ACP Session Runtime")
+        }
+    }
+
+    private func eventDescription(_ payload: AgentEventPayload) -> String {
+        switch payload {
+        case let .textDelta(text): return text
+        case let .planUpdated(entries): return "Plan: " + entries.map(\.content).joined(separator: " → ")
+        case let .toolStarted(_, title): return "Tool started: \(title)"
+        case let .toolFinished(id, status): return "Tool \(id): \(status)"
+        case let .permissionRequested(_, title, _): return "Permission requested: \(title ?? "unknown tool") (safely cancelled)"
+        case let .usageUpdated(used, size): return "Usage: \(used) / \(size) tokens"
+        case let .completed(reason): return "Completed: \(reason)"
+        case .cancelled: return "Cancelled"
+        case let .failed(code, message): return "Failed [\(code)]: \(message)"
         }
     }
 

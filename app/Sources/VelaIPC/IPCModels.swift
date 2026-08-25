@@ -174,6 +174,137 @@ public struct AgentRegistrySnapshot: Equatable, Sendable {
     }
 }
 
+public enum SessionState: String, Equatable, Sendable {
+    case starting, ready, running, completed, cancelled, failed
+}
+
+public struct SessionDescriptor: Equatable, Sendable {
+    public let id: String
+    public let agentID: String
+    public let acpSessionID: String
+    public let processID: UInt32
+    public let cwd: String
+    public let state: SessionState
+
+    init?(result: [String: JSONValue]) {
+        guard
+            let id = result["id"]?.stringValue,
+            let agentID = result["agent_id"]?.stringValue,
+            let acpSessionID = result["acp_session_id"]?.stringValue,
+            let processValue = result["process_id"]?.numberValue,
+            let processID = UInt32(exactly: processValue),
+            let cwd = result["cwd"]?.stringValue,
+            let stateValue = result["state"]?.stringValue,
+            let state = SessionState(rawValue: stateValue)
+        else { return nil }
+        self.id = id
+        self.agentID = agentID
+        self.acpSessionID = acpSessionID
+        self.processID = processID
+        self.cwd = cwd
+        self.state = state
+    }
+}
+
+public struct SessionPlanEntry: Equatable, Sendable {
+    public let content: String
+    public let status: String
+    public let priority: String
+}
+
+public enum AgentEventPayload: Equatable, Sendable {
+    case textDelta(String)
+    case planUpdated([SessionPlanEntry])
+    case toolStarted(id: String, title: String)
+    case toolFinished(id: String, status: String)
+    case permissionRequested(id: String, title: String?, options: [String])
+    case usageUpdated(used: UInt64, size: UInt64)
+    case completed(stopReason: String)
+    case cancelled
+    case failed(code: String, message: String)
+
+    public var isTerminal: Bool {
+        switch self {
+        case .completed, .cancelled, .failed: true
+        default: false
+        }
+    }
+}
+
+public struct AgentEvent: Identifiable, Equatable, Sendable {
+    public var id: String { "\(sessionID)-\(runID)-\(sequence)" }
+
+    public let sessionID: String
+    public let runID: String
+    public let requestID: String
+    public let sequence: UInt64
+    public let timestampMilliseconds: UInt64
+    public let payload: AgentEventPayload
+
+    init?(data: [String: JSONValue]) {
+        guard
+            let sessionID = data["session_id"]?.stringValue,
+            let runID = data["run_id"]?.stringValue,
+            let requestID = data["request_id"]?.stringValue,
+            let sequenceValue = data["sequence"]?.numberValue,
+            let sequence = UInt64(exactly: sequenceValue),
+            let timestampValue = data["timestamp_ms"]?.numberValue,
+            let timestamp = UInt64(exactly: timestampValue),
+            let kind = data["kind"]?.stringValue,
+            let payload = Self.payload(kind: kind, data: data)
+        else { return nil }
+        self.sessionID = sessionID
+        self.runID = runID
+        self.requestID = requestID
+        self.sequence = sequence
+        timestampMilliseconds = timestamp
+        self.payload = payload
+    }
+
+    private static func payload(kind: String, data: [String: JSONValue]) -> AgentEventPayload? {
+        switch kind {
+        case "text_delta":
+            return data["text"]?.stringValue.map(AgentEventPayload.textDelta)
+        case "plan_updated":
+            let entries = data["entries"]?.arrayValue?.compactMap { value -> SessionPlanEntry? in
+                guard
+                    let entry = value.objectValue,
+                    let content = entry["content"]?.stringValue,
+                    let status = entry["status"]?.stringValue,
+                    let priority = entry["priority"]?.stringValue
+                else { return nil }
+                return SessionPlanEntry(content: content, status: status, priority: priority)
+            } ?? []
+            return .planUpdated(entries)
+        case "tool_started":
+            guard let id = data["tool_call_id"]?.stringValue, let title = data["title"]?.stringValue else { return nil }
+            return .toolStarted(id: id, title: title)
+        case "tool_finished":
+            guard let id = data["tool_call_id"]?.stringValue, let status = data["status"]?.stringValue else { return nil }
+            return .toolFinished(id: id, status: status)
+        case "permission_requested":
+            guard let id = data["tool_call_id"]?.stringValue else { return nil }
+            let options = data["options"]?.arrayValue?.compactMap(\.stringValue) ?? []
+            return .permissionRequested(id: id, title: data["title"]?.stringValue, options: options)
+        case "usage_updated":
+            guard
+                let usedValue = data["used"]?.numberValue,
+                let used = UInt64(exactly: usedValue),
+                let sizeValue = data["size"]?.numberValue,
+                let size = UInt64(exactly: sizeValue)
+            else { return nil }
+            return .usageUpdated(used: used, size: size)
+        case "completed":
+            return data["stop_reason"]?.stringValue.map { .completed(stopReason: $0) }
+        case "cancelled": return .cancelled
+        case "failed":
+            guard let code = data["code"]?.stringValue, let message = data["message"]?.stringValue else { return nil }
+            return .failed(code: code, message: message)
+        default: return nil
+        }
+    }
+}
+
 public struct IPCErrorPayload: Codable, Equatable, Sendable {
     public let code: String
     public let message: String

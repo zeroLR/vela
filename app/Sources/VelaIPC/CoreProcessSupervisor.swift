@@ -20,9 +20,11 @@ public final class CoreProcessSupervisor: ObservableObject {
 
     private var process: Process?
     private var expectedStop = false
+    private let environmentOverrides: [String: String]
 
-    public init(socketPath: String? = nil) {
+    public init(socketPath: String? = nil, environmentOverrides: [String: String] = [:]) {
         self.socketPath = socketPath ?? "/tmp/vela-\(getuid()).sock"
+        self.environmentOverrides = environmentOverrides
     }
 
     public func start() async -> Bool {
@@ -37,6 +39,7 @@ public final class CoreProcessSupervisor: ObservableObject {
         let process = Process()
         process.executableURL = executableURL
         process.arguments = ["--socket", socketPath]
+        process.environment = ProcessInfo.processInfo.environment.merging(environmentOverrides) { _, override in override }
         process.standardOutput = FileHandle.standardOutput
         process.standardError = FileHandle.standardError
         expectedStop = false

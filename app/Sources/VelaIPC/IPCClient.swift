@@ -18,10 +18,15 @@ public final class IPCClient: ObservableObject {
     @Published public private(set) var activeStreamRequestID: String?
     @Published public private(set) var agentRegistry = AgentRegistrySnapshot.empty
     @Published public private(set) var isRefreshingAgents = false
+    @Published public private(set) var session: SessionDescriptor?
+    @Published public private(set) var sessionEvents: [AgentEvent] = []
+    @Published public private(set) var activeRunID: String?
+    @Published public private(set) var isCreatingSession = false
 
     private var connection: NWConnection?
     private var receiveBuffer = Data()
     private var pendingMethods: [String: String] = [:]
+    private var terminalRunIDs: Set<String> = []
 
     public init() {}
 
@@ -49,6 +54,11 @@ public final class IPCClient: ObservableObject {
         pendingMethods.removeAll()
         activeStreamRequestID = nil
         isRefreshingAgents = false
+        session = nil
+        sessionEvents.removeAll()
+        terminalRunIDs.removeAll()
+        activeRunID = nil
+        isCreatingSession = false
         state = reason == nil ? .disconnected : .degraded
         if let reason {
             appendDiagnostic(reason)
@@ -71,6 +81,42 @@ public final class IPCClient: ObservableObject {
         guard let id = send(method: "agents.refresh") else { return nil }
         isRefreshingAgents = true
         return id
+    }
+
+    @discardableResult
+    public func createSession(agentID: String, cwd: String) -> String? {
+        guard !isCreatingSession && activeRunID == nil else { return nil }
+        guard let id = send(
+            method: "session.create",
+            params: ["agent_id": .string(agentID), "cwd": .string(cwd)]
+        ) else { return nil }
+        isCreatingSession = true
+        return id
+    }
+
+    @discardableResult
+    public func prompt(_ text: String) -> String? {
+        guard let session, activeRunID == nil, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        return send(
+            method: "session.prompt",
+            params: ["session_id": .string(session.id), "text": .string(text)]
+        )
+    }
+
+    @discardableResult
+    public func cancelPrompt() -> String? {
+        guard let session, let runID = activeRunID else { return nil }
+        return send(
+            method: "session.cancel",
+            params: ["session_id": .string(session.id), "run_id": .string(runID)]
+        )
+    }
+
+    public func clearSessionEvents() {
+        sessionEvents.removeAll()
+        terminalRunIDs.removeAll()
     }
 
     @discardableResult
@@ -189,6 +235,10 @@ public final class IPCClient: ObservableObject {
         }
 
         if let eventName = message.event {
+            if eventName == "agent.event" {
+                receiveAgentEvent(message)
+                return
+            }
             let accepted = transcript.accept(message)
             if !accepted {
                 appendDiagnostic("Ignored invalid or post-terminal event: \(eventName)")
@@ -209,6 +259,9 @@ public final class IPCClient: ObservableObject {
             if method == "agents.refresh" {
                 isRefreshingAgents = false
             }
+            if method == "session.create" {
+                isCreatingSession = false
+            }
             if method == "core.hello" {
                 state = .degraded
             }
@@ -228,8 +281,44 @@ public final class IPCClient: ObservableObject {
                 agentRegistry = snapshot
             }
             appendDiagnostic("\(method) found \(snapshot.agents.count) agent definitions")
+        } else if method == "session.create" {
+            isCreatingSession = false
+            guard let result = message.result, let descriptor = SessionDescriptor(result: result) else {
+                appendDiagnostic("session.create returned an invalid session")
+                return
+            }
+            session = descriptor
+            sessionEvents.removeAll()
+            terminalRunIDs.removeAll()
+            appendDiagnostic("session.create ready [\(descriptor.id), pid \(descriptor.processID)]")
+        } else if method == "session.prompt" {
+            guard let runID = message.result?["run_id"]?.stringValue else {
+                appendDiagnostic("session.prompt returned an invalid run")
+                return
+            }
+            activeRunID = runID
+            appendDiagnostic("session.prompt accepted [\(runID)]")
         } else {
             appendDiagnostic("\(method) completed [\(id)]")
+        }
+    }
+
+    private func receiveAgentEvent(_ message: IPCMessage) {
+        guard let data = message.data, let event = AgentEvent(data: data) else {
+            appendDiagnostic("Ignored malformed agent.event")
+            return
+        }
+        guard !terminalRunIDs.contains(event.runID) else {
+            appendDiagnostic("Ignored post-terminal agent event for \(event.runID)")
+            return
+        }
+        sessionEvents.append(event)
+        if event.payload.isTerminal {
+            terminalRunIDs.insert(event.runID)
+            if activeRunID == event.runID {
+                activeRunID = nil
+            }
+            appendDiagnostic("Agent run terminated [\(event.runID)]")
         }
     }
 
