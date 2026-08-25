@@ -195,7 +195,7 @@ fn built_in_definitions() -> Vec<HarnessDefinition> {
                 ("INITIAL_AGENT_MODE".to_owned(), "read-only".to_owned()),
                 (
                     "CODEX_CONFIG".to_owned(),
-                    r#"{"approval_policy":"on-request","sandbox_mode":"read-only","sandbox_workspace_write":{"exclude_slash_tmp":true,"exclude_tmpdir_env_var":true,"network_access":false,"writable_roots":[]}}"#.to_owned(),
+                    r#"{"approval_policy":"on-request","approvals_reviewer":"user","sandbox_mode":"read-only","sandbox_workspace_write":{"exclude_slash_tmp":true,"exclude_tmpdir_env_var":true,"network_access":false,"writable_roots":[]}}"#.to_owned(),
                 ),
             ]),
             enforced_session_mode: "read-only".to_owned(),
@@ -534,6 +534,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(config["approval_policy"], "on-request");
+        assert_eq!(config["approvals_reviewer"], "user");
         assert_eq!(config["sandbox_mode"], "read-only");
         assert_eq!(config["sandbox_workspace_write"]["exclude_slash_tmp"], true);
         assert_eq!(
