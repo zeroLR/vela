@@ -24,6 +24,7 @@ A milestone is complete only when its acceptance criteria pass and the resulting
 | 02 | Harness Discovery | Local agent detectability | Normalized Claude/Codex harness registry |
 | 03 | ACP Session | Agent runtime integration | Prompt/stream/cancel/recover end to end |
 | 04 | Permission Broker | Safe execution control | Native permission flow for ACP requests |
+| 04.1 | Real Adapter Enforcement | Ambient provider policy bypass | Fail-closed ACP modes + real write-denial proof |
 | 05 | Workspace | Persistent work-state model | Filesystem workspace + events + indexing |
 | 06 | Capture | Daily utility | Text + push-to-talk capture into workspace |
 | 07 | Avatar Presence | Presence/engagement | Semantic agent state → avatar reactions |
@@ -39,13 +40,14 @@ flowchart LR
     P02[02 Harness Discovery]
     P03[03 ACP Session]
     P04[04 Permission Broker]
+    P041[04.1 Real Adapter Enforcement]
     P05[05 Workspace]
     P06[06 Capture]
     P07[07 Avatar Presence]
     P08[08 Scheduled Assistance]
     P09[09 Dogfood & Distribution]
 
-    P00 --> P01 --> P02 --> P03 --> P04 --> P05 --> P06 --> P07 --> P08 --> P09
+    P00 --> P01 --> P02 --> P03 --> P04 --> P041 --> P05 --> P06 --> P07 --> P08 --> P09
 ```
 
 ## Product Validation Gates
@@ -94,6 +96,7 @@ Initial dogfood targets:
 - [`02-harness-discovery.md`](02-harness-discovery.md)
 - [`03-acp-session.md`](03-acp-session.md)
 - [`04-permission-broker.md`](04-permission-broker.md)
+- [`04.1-real-adapter-enforcement.md`](04.1-real-adapter-enforcement.md)
 - [`05-workspace.md`](05-workspace.md)
 - [`06-capture.md`](06-capture.md)
 - [`07-avatar-presence.md`](07-avatar-presence.md)

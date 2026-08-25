@@ -86,3 +86,5 @@ After this phase, evaluate the first product gate:
 If the answer is not clearly yes, revise the execution plane before building workspace and presence features.
 
 Gate result on 2026-08-25: **revise**. Vela reliably mediates adapters that emit ACP permission requests, but the installed real-adapter configurations did not emit one for the safe test. Do not start Phase 05 until a disposable sandbox can prove a real provider request cannot bypass the broker.
+
+Phase 04.1 supersedes this provisional result. Vela now pins safe ACP session modes before readiness, and disposable real write probes for both installed adapters reached the broker, were denied, were audited, and left no target file. Gate A is **pass**; see [`04.1-real-adapter-enforcement.md`](04.1-real-adapter-enforcement.md).

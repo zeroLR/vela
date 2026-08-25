@@ -61,3 +61,14 @@ Audit records are available through `permissions.history` and are also emitted a
 The fake ACP harness covers all six categories, allow once, deny, exact session grants, timeout, cancellation, and two sessions pending concurrently. The Swift↔Rust integration test creates a fake permission session, resolves it through IPC, observes its audit record, and reaches one terminal event.
 
 Real smoke attempts on 2026-08-25 used `codex-acp` 1.6.2 and `claude-agent-acp` 0.70.0. Their inherited policies performed harmless `/private/tmp` file calls without sending ACP permission requests. A test-only Codex `agent` / `on-request` / `workspace-write` retry also produced no request because `/private/tmp` remained an allowed root. A riskier outside-workspace write was deliberately not attempted. Real mediation is therefore unverified for these configurations and is not counted as broker evidence; Phase 05 remains gated on an isolated real-provider proof.
+
+## Real adapter enforcement
+
+Phase 04.1 closes that gap before Phase 05. An adapter launch spec now carries a non-empty `enforced_session_mode`. After `session/new`, the runtime requires the adapter to advertise that exact mode and successfully handles `session/set_mode` before it publishes session readiness. Missing mode state, an unsupported mode, or a rejected change terminates session creation before any prompt.
+
+Built-in policy is intentionally strict:
+
+- Codex starts with `INITIAL_AGENT_MODE=read-only` plus a Vela-owned `CODEX_CONFIG` that fixes `approval_policy=on-request`, `approvals_reviewer=user`, `sandbox_mode=read-only`, disables network, and excludes `/tmp` and `$TMPDIR` from any workspace-write fallback.
+- Claude must accept ACP mode `default` after `session/new`, overriding an ambient escalating initial mode before the first prompt.
+
+The disposable runner `scripts/real-adapter-enforcement-smoke.mjs` then proved `codex-acp` 1.6.2 and `claude-agent-acp` 0.70.0 each emitted a normalized `filesystem.write` request. Both were denied through `permission.resolve`; both retained an audited `denied` result; neither target existed afterward. Every run used and removed a unique `/private/tmp/vela-real-enforcement-*` tree. The full record and Gate A result are in [`../plan/04.1-real-adapter-enforcement.md`](../plan/04.1-real-adapter-enforcement.md).

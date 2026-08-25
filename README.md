@@ -54,7 +54,7 @@ The detailed, acceptance-test-driven execution plan lives in [`plan/`](plan/READ
 
 ## Development
 
-Phase 00–04 establish the Swift/Rust skeleton, local IPC, ACP harness discovery, session runtime, and permission broker. The debug app can select a ready adapter, create a process/session, submit text, render normalized streaming events, mediate permission requests, cancel a run, and recover by creating a new session after adapter failure.
+Phase 00–04.1 establish the Swift/Rust skeleton, local IPC, ACP harness discovery, session runtime, permission broker, and fail-closed real-adapter enforcement. The debug app can select a ready adapter, show its enforced ACP mode, create a process/session, submit text, render normalized streaming events, mediate permission requests, cancel a run, and recover by creating a new session after adapter failure.
 
 ```bash
 cargo build --manifest-path core/Cargo.toml --workspace
@@ -66,4 +66,4 @@ See [`schemas/ipc-v1.md`](schemas/ipc-v1.md) for the wire contract, [`schemas/ha
 
 ## Status
 
-Phase 00–04 execution-plane implementation and validation. Fake ACP sessions and permission decisions are deterministic end to end, Swift/Rust cross-runtime permission mediation passes, and real `codex-acp` and `claude-agent-acp` session paths pass smoke validation. Workspace, capture, and avatar behavior remain intentionally out of scope.
+Phase 00–04.1 execution plane is complete and Gate A passes. Fake ACP sessions and permission decisions are deterministic end to end, Swift/Rust cross-runtime permission mediation passes, and disposable real `codex-acp` and `claude-agent-acp` write probes both crossed the Vela broker, were denied, and left no file behind. Phase 05 local-first workspace is next; capture and avatar behavior remain intentionally out of scope.

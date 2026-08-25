@@ -42,6 +42,7 @@ Peers accept different minor versions and reject different major versions. Reque
       "executable_path": "/opt/homebrew/bin/codex-acp",
       "version": "codex-acp 0.8.1",
       "protocol_version": "1",
+      "enforced_session_mode": "read-only",
       "capabilities": ["prompt.image", "session.list"],
       "auth_methods": [],
       "diagnostic": null
@@ -50,7 +51,7 @@ Peers accept different minor versions and reject different major versions. Reque
 }
 ```
 
-Status is one of `unavailable`, `ready`, `unauthenticated`, `incompatible`, or `failed`. A refresh increments `generation`; clients should ignore an older result arriving after a newer one.
+Status is one of `unavailable`, `ready`, `unauthenticated`, `incompatible`, or `failed`. `enforced_session_mode` is the exact ACP mode Vela must successfully set after `session/new` and before returning a ready `SessionDescriptor`. A refresh increments `generation`; clients should ignore an older result arriving after a newer one.
 
 ## Agent events
 

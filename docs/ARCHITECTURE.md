@@ -195,6 +195,8 @@ Authentication remains owned by the underlying CLI/harness whenever possible. Ve
 
 Agent-side requests that can mutate state or access sensitive resources must flow through a Vela permission broker.
 
+Session readiness is also a security boundary. Each adapter launch spec declares an enforced ACP session mode. Core verifies the mode is advertised and successfully applies it immediately after `session/new`; otherwise session creation fails before the first prompt. Built-in child-process policy supplies a provider-specific defense-in-depth baseline, while permission decisions and audit semantics remain provider-neutral Vela contracts.
+
 Minimum user decisions:
 
 - Allow once
