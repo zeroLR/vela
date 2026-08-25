@@ -15,7 +15,7 @@ Expected responsibilities:
 
 Do not place ACP/provider protocol logic here. The app consumes Vela-owned IPC/domain events only.
 
-The Phase 00–06 Swift package contains a native SwiftUI diagnostics app, an IPC client, a `vela-core` process supervisor, and a floating text/speech capture panel. `⌥Space` opens Quick Capture; the last workspace reopens after the Core handshake. Typed or push-to-talk input can be reviewed, routed, and corrected without provider-specific Swift logic or an ACP session.
+The Phase 00–06 Swift package contains a native SwiftUI diagnostics app, an IPC client, a `vela-core` process supervisor, and a floating text/speech capture panel. `⌥Space` opens Quick Capture, with `⌃⌥V` as a conflict-resistant fallback; the last workspace reopens after the Core handshake. Typed or push-to-talk input can be reviewed, routed, and corrected without provider-specific Swift logic or an ACP session.
 
 From the repository root:
 

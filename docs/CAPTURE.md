@@ -4,7 +4,7 @@ Phase 06 adds a fast local capture lane that does not start an ACP session. Swif
 
 ## Native interaction
 
-`⌥Space` is registered through Carbon as a system global hotkey. It opens a floating Quick Capture panel across Spaces and brings it to the foreground. The last successfully opened workspace path is stored in `UserDefaults` and reopened after the next Core handshake, so routine captures do not require navigating the diagnostics window.
+`⌥Space` is registered through Carbon as a system global hotkey. Because launchers or input utilities may consume that combination without reporting a Carbon registration conflict, Vela also registers `⌃⌥V` as a fallback. Either shortcut opens a floating Quick Capture panel across Spaces and explicitly orders it to the foreground. The last successfully opened workspace path is stored in `UserDefaults` and reopened after the next Core handshake, so routine captures do not require navigating the diagnostics window.
 
 The panel supports typed input and a hold-to-talk control. Recording state is explicit. Speech uses `AVAudioEngine` and `SFSpeechRecognizer`; microphone and Speech usage descriptions are embedded in the VelaApp Mach-O Info.plist section.
 
@@ -60,4 +60,4 @@ No telemetry leaves the machine.
 
 Automated coverage proves raw/structured preservation, reopen, deterministic routing, route correction and cleanup, abandonment, metrics, event correlation, and Swift→Core operation against a real process and Unix socket. The native executable starts and supervises Core, and its embedded permission metadata is inspected during validation.
 
-Gate B still requires user-driven macOS validation: invoke `⌥Space` while another app has focus, approve/deny microphone and Speech permissions, exercise success/failure/cancel flows, then dogfood across multiple normal work sessions. Screen/Accessibility automation is intentionally not used to bypass those permissions.
+Gate B still requires user-driven macOS validation: invoke `⌥Space` and fallback `⌃⌥V` while another app has focus, approve/deny microphone and Speech permissions, exercise success/failure/cancel flows, then dogfood across multiple normal work sessions. Screen/Accessibility automation is intentionally not used to bypass those permissions.

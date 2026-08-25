@@ -14,6 +14,7 @@ final class QuickCapturePanelController {
     func show() {
         if let panel, panel.isVisible {
             NSApp.activate(ignoringOtherApps: true)
+            panel.orderFrontRegardless()
             panel.makeKeyAndOrderFront(nil)
             return
         }
@@ -35,7 +36,9 @@ final class QuickCapturePanelController {
         )
         panel.center()
         self.panel = panel
+        NSLog("Vela Quick Capture panel requested")
         NSApp.activate(ignoringOtherApps: true)
+        panel.orderFrontRegardless()
         panel.makeKeyAndOrderFront(nil)
     }
 }
@@ -59,7 +62,9 @@ private struct QuickCaptureView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("Quick Capture").font(.title2.bold())
-                Text("⌥Space").font(.caption.monospaced()).foregroundStyle(.secondary)
+                Text("⌥Space · fallback ⌃⌥V")
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
                 Spacer()
                 if client.workspace == nil {
                     Text("Open a workspace first").foregroundStyle(.orange)

@@ -52,7 +52,7 @@ final class AppEnvironment: ObservableObject {
             try hotKey.register()
             quickCapturePanel = panel
             globalHotKey = hotKey
-            captureShortcutStatus = "⌥Space ready"
+            captureShortcutStatus = "\(hotKey.registeredShortcutLabel) ready"
         } catch {
             quickCapturePanel = panel
             captureShortcutStatus = error.localizedDescription
