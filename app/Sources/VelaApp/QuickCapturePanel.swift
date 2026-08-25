@@ -91,6 +91,9 @@ private struct QuickCaptureView: View {
                 Text(speech.state.label)
                     .font(.caption)
                     .foregroundStyle(speech.isRecording ? .red : .secondary)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .help(speech.state.label)
                 Spacer()
                 speechButton
             }

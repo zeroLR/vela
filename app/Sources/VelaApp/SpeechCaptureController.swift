@@ -37,12 +37,21 @@ final class SpeechCaptureController: ObservableObject {
 
     func pressBegan() {
         guard state == .idle || state.isFailed else { return }
+        if let privacyFailure = Self.privacyConfigurationFailure {
+            state = .failed(privacyFailure)
+            return
+        }
         stopRequested = false
         state = .authorizing
         Task {
+            let microphoneGranted = await requestMicrophoneAccess()
             let authorization = await requestAuthorization()
             guard !stopRequested else {
                 state = .idle
+                return
+            }
+            guard microphoneGranted else {
+                state = .failed("Microphone permission was not granted")
                 return
             }
             guard authorization == .authorized else {
@@ -113,10 +122,7 @@ final class SpeechCaptureController: ObservableObject {
         recognitionRequest = request
         audioFile = file
 
-        inputNode.installTap(onBus: 0, bufferSize: 1_024, format: format) { buffer, _ in
-            request.append(buffer)
-            try? file.write(from: buffer)
-        }
+        Self.installAudioTap(on: inputNode, format: format, request: request, file: file)
         audioEngine.prepare()
         try audioEngine.start()
 
@@ -125,7 +131,7 @@ final class SpeechCaptureController: ObservableObject {
             inputNode.removeTap(onBus: 0)
             throw SpeechCaptureError.recognizerUnavailable
         }
-        recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
+        recognitionTask = recognizer.recognitionTask(with: request) { @Sendable [weak self] result, error in
             let text = result?.bestTranscription.formattedString
             let isFinal = result?.isFinal == true
             let errorDescription = error?.localizedDescription
@@ -138,6 +144,22 @@ final class SpeechCaptureController: ObservableObject {
             }
         }
         state = .recording
+    }
+
+    // TCC, Speech, and the audio render thread invoke these callbacks off the main
+    // queue. A closure created in this @MainActor type inherits main-actor isolation
+    // and traps the process when the framework calls it, so the callbacks below stay
+    // explicitly nonisolated and hop back to the main actor themselves.
+    private nonisolated static func installAudioTap(
+        on inputNode: AVAudioInputNode,
+        format: AVAudioFormat,
+        request: SFSpeechAudioBufferRecognitionRequest,
+        file: AVAudioFile
+    ) {
+        inputNode.installTap(onBus: 0, bufferSize: 1_024, format: format) { buffer, _ in
+            request.append(buffer)
+            try? file.write(from: buffer)
+        }
     }
 
     private func receiveRecognition(
@@ -157,12 +179,40 @@ final class SpeechCaptureController: ObservableObject {
         }
     }
 
-    private func requestAuthorization() async -> SFSpeechRecognizerAuthorizationStatus {
+    private nonisolated func requestMicrophoneAccess() async -> Bool {
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .authorized: true
+        case .notDetermined: await AVCaptureDevice.requestAccess(for: .audio)
+        default: false
+        }
+    }
+
+    private nonisolated func requestAuthorization() async -> SFSpeechRecognizerAuthorizationStatus {
         await withCheckedContinuation { continuation in
             SFSpeechRecognizer.requestAuthorization { status in
                 continuation.resume(returning: status)
             }
         }
+    }
+
+    // TCC aborts the process instead of returning an error when it cannot read a
+    // usage description. A bare `swift run` executable still answers the usage-
+    // description keys from its embedded __info_plist section, so only the bundle
+    // layout distinguishes a launch that TCC will accept.
+    private static var privacyConfigurationFailure: String? {
+        guard Bundle.main.bundleURL.pathExtension == "app" else {
+            return "Push-to-talk must be launched with scripts/run-app.sh so macOS can read its privacy settings"
+        }
+        let requiredKeys = [
+            "NSMicrophoneUsageDescription",
+            "NSSpeechRecognitionUsageDescription",
+        ]
+        guard requiredKeys.allSatisfy({
+            Bundle.main.object(forInfoDictionaryKey: $0) as? String != nil
+        }) else {
+            return "This VelaApp bundle is missing microphone or Speech privacy settings"
+        }
+        return nil
     }
 }
 

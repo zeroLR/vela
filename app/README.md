@@ -22,7 +22,7 @@ From the repository root:
 ```bash
 cargo build --manifest-path core/Cargo.toml --workspace
 swift test --package-path app
-VELA_CORE_PATH="$PWD/core/target/debug/vela-core" swift run --package-path app VelaApp
+scripts/run-app.sh
 ```
 
-The debug screen can inspect capture metrics/routes, run and cancel a deterministic 20-event stream, terminate Core, and explicitly restart/reconnect without relaunching the app. The supervisor also checks the development build location when `VELA_CORE_PATH` is not set. Microphone and Speech permissions are requested only when the push-to-talk control is used.
+The debug screen can inspect capture metrics/routes, run and cancel a deterministic 20-event stream, terminate Core, and explicitly restart/reconnect without relaunching the app. The supervisor also checks the development build location when `VELA_CORE_PATH` is not set. Microphone and Speech permissions are requested only when the push-to-talk control is used. Run the app through `scripts/run-app.sh` for voice capture (`--attached` keeps app and Core logs in the terminal); a bare `swift run` process deliberately disables it before macOS TCC can abort the process.

@@ -59,8 +59,10 @@ Phase 00–06 establish the Swift/Rust skeleton, local IPC, ACP harness discover
 ```bash
 cargo build --manifest-path core/Cargo.toml --workspace
 scripts/check.sh
-VELA_CORE_PATH="$PWD/core/target/debug/vela-core" swift run --package-path app VelaApp
+scripts/run-app.sh
 ```
+
+Use `scripts/run-app.sh` for push-to-talk: it creates a local ad-hoc signed `.app` bundle with the microphone and Speech privacy declarations required by macOS TCC, then launches it so privacy prompts are attributed to Vela. Add `--attached` to keep app and Core logs in the terminal, or `--bundle-only` to build without launching. `swift run --package-path app VelaApp` remains suitable for non-audio UI development, but its bare executable disables push-to-talk rather than risk a privacy crash.
 
 See [`schemas/ipc-v1.md`](schemas/ipc-v1.md) for the wire contract, [`schemas/harness-config-v1.md`](schemas/harness-config-v1.md) for custom discovery entries, [`docs/IPC_LIFECYCLE.md`](docs/IPC_LIFECYCLE.md) for supervision/recovery semantics, [`docs/WORKSPACE.md`](docs/WORKSPACE.md) for workspace ownership, and [`docs/CAPTURE.md`](docs/CAPTURE.md) for capture routing/recovery.
 

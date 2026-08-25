@@ -12,6 +12,10 @@
     <string>VelaApp</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>Vela records audio only while you hold the push-to-talk control.</string>
     <key>NSSpeechRecognitionUsageDescription</key>
