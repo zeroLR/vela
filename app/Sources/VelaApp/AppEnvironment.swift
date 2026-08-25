@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import VelaIPC
 
@@ -9,6 +10,7 @@ final class AppEnvironment: ObservableObject {
 
     private var quickCapturePanel: QuickCapturePanelController?
     private var globalHotKey: GlobalHotKeyController?
+    private var cancellables: Set<AnyCancellable> = []
 
     init(
         client: IPCClient = IPCClient(),
@@ -19,6 +21,13 @@ final class AppEnvironment: ObservableObject {
         supervisor.onUnexpectedExit = { [weak client] description in
             client?.disconnect(reason: description)
         }
+        client.$state
+            .removeDuplicates()
+            .sink { [weak self] state in
+                guard state == .ready else { return }
+                self?.restoreWorkspace()
+            }
+            .store(in: &cancellables)
     }
 
     func start() async {
@@ -54,8 +63,24 @@ final class AppEnvironment: ObservableObject {
         quickCapturePanel?.show()
     }
 
+    @discardableResult
+    func openWorkspace(root: String) -> String? {
+        guard let requestID = client.openWorkspace(root: root) else { return nil }
+        UserDefaults.standard.set(root, forKey: Self.lastWorkspaceKey)
+        return requestID
+    }
+
     func stop() {
         client.disconnect(reason: nil)
         supervisor.stop()
     }
+
+    private func restoreWorkspace() {
+        guard client.workspace == nil,
+              let root = UserDefaults.standard.string(forKey: Self.lastWorkspaceKey),
+              FileManager.default.fileExists(atPath: root) else { return }
+        _ = client.openWorkspace(root: root)
+    }
+
+    private static let lastWorkspaceKey = "dev.vela.last-workspace-root"
 }

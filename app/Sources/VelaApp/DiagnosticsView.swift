@@ -117,7 +117,7 @@ struct DiagnosticsView: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     TextField("Workspace root", text: $workspaceRoot)
-                    Button("Open / Create") { client.openWorkspace(root: workspaceRoot) }
+                    Button("Open / Create") { environment.openWorkspace(root: workspaceRoot) }
                         .disabled(client.state != .ready)
                     Button("Reconcile") { client.refreshWorkspace() }
                         .disabled(client.workspace == nil)
