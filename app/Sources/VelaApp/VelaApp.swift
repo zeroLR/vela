@@ -8,7 +8,10 @@ struct VelaApp: App {
     var body: some Scene {
         WindowGroup {
             DiagnosticsView(environment: environment)
-                .task { await environment.start() }
+                .task {
+                    environment.installCaptureUI()
+                    await environment.start()
+                }
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
                     environment.stop()
                 }

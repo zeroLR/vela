@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>dev.vela.app</string>
+    <key>CFBundleName</key>
+    <string>Vela</string>
+    <key>CFBundleDisplayName</key>
+    <string>Vela</string>
+    <key>CFBundleExecutable</key>
+    <string>VelaApp</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Vela records audio only while you hold the push-to-talk control.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Vela transcribes push-to-talk captures for your local workspace.</string>
+</dict>
+</plist>

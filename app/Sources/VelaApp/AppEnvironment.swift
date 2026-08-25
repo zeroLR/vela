@@ -5,6 +5,10 @@ import VelaIPC
 final class AppEnvironment: ObservableObject {
     let client: IPCClient
     let supervisor: CoreProcessSupervisor
+    @Published private(set) var captureShortcutStatus = "Not installed"
+
+    private var quickCapturePanel: QuickCapturePanelController?
+    private var globalHotKey: GlobalHotKeyController?
 
     init(
         client: IPCClient = IPCClient(),
@@ -27,6 +31,27 @@ final class AppEnvironment: ObservableObject {
         supervisor.stop()
         try? await Task.sleep(for: .milliseconds(150))
         await start()
+    }
+
+    func installCaptureUI() {
+        guard globalHotKey == nil else { return }
+        let panel = QuickCapturePanelController(client: client)
+        let hotKey = GlobalHotKeyController { [weak self] in
+            self?.showQuickCapture()
+        }
+        do {
+            try hotKey.register()
+            quickCapturePanel = panel
+            globalHotKey = hotKey
+            captureShortcutStatus = "⌥Space ready"
+        } catch {
+            quickCapturePanel = panel
+            captureShortcutStatus = error.localizedDescription
+        }
+    }
+
+    func showQuickCapture() {
+        quickCapturePanel?.show()
     }
 
     func stop() {

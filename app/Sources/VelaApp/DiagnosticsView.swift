@@ -48,6 +48,8 @@ struct DiagnosticsView: View {
                 Button("Start / Restart Core") { Task { await environment.restart() } }
                 Button("Health") { client.requestHealth() }
                     .disabled(client.state != .ready)
+                Button("Quick Capture") { environment.showQuickCapture() }
+                    .disabled(client.workspace == nil)
                 Button("Start 20-event Stream") { client.startStream() }
                     .disabled(client.state != .ready || client.activeStreamRequestID != nil)
                 Button("Cancel Stream") { client.cancelStream() }
@@ -57,6 +59,7 @@ struct DiagnosticsView: View {
             }
 
             workspacePanel
+            capturePanel
             agentList
             sessionPanel
             permissionPanel
@@ -67,7 +70,7 @@ struct DiagnosticsView: View {
             }
         }
         .padding(20)
-        .frame(minWidth: 900, minHeight: 1280)
+        .frame(minWidth: 900, minHeight: 1450)
         .onChange(of: client.agentRegistry.agents) { _, agents in
             if !agents.contains(where: { $0.id == selectedAgentID && $0.status == .ready }) {
                 selectedAgentID = agents.first(where: { $0.status == .ready })?.id ?? ""
@@ -193,6 +196,64 @@ struct DiagnosticsView: View {
             }
         } label: {
             Text("Local-First Workspace")
+        }
+    }
+
+    private var capturePanel: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text(environment.captureShortcutStatus)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Open Quick Capture") { environment.showQuickCapture() }
+                        .disabled(client.workspace == nil)
+                    Button("Refresh") {
+                        client.listCaptures()
+                        client.loadCaptureMetrics()
+                    }
+                    .disabled(client.workspace == nil)
+                }
+                let metrics = client.captureMetrics
+                Text(
+                    "Today \(metrics.capturesSince) · completed \(metrics.completedCaptures) · abandoned \(metrics.abandonedCaptures) · corrections \(Double(metrics.correctionRateBasisPoints) / 100, specifier: "%.1f")% · median \(metrics.medianCompletionMilliseconds.map { "\($0) ms" } ?? "n/a")"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+                ForEach(client.captures.prefix(5)) { capture in
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(capture.title).lineLimit(1)
+                            Text(
+                                "\(capture.source.rawValue) · suggested \(capture.suggestedIntent.rawValue) · \(capture.routedPath ?? capture.status.rawValue)"
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Picker("Route", selection: Binding(
+                            get: { capture.intent },
+                            set: { client.correctCapture(id: capture.id, intent: $0) }
+                        )) {
+                            ForEach(CaptureIntent.allCases, id: \.self) { intent in
+                                Text(intent.rawValue).tag(intent)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(width: 130)
+                        .disabled(capture.status == .abandoned)
+                    }
+                }
+                if client.captures.isEmpty {
+                    Text("No captures yet")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, minHeight: 50, alignment: .center)
+                }
+            }
+        } label: {
+            Text("Capture and Work Utility")
         }
     }
 
