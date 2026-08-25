@@ -15,4 +15,4 @@ Rules:
 - Breaking schema changes require an explicit major-version strategy.
 - Example fixtures should accompany schema changes.
 
-The first concrete schema is introduced in `plan/01-core-ipc.md`.
+The first concrete contract is [`ipc-v1.md`](ipc-v1.md). It deliberately uses a small NDJSON envelope until later product requirements justify a heavier transport.

@@ -1,0 +1,7 @@
+{"version":{"major":1,"minor":0},"id":"hello-1","method":"core.hello","params":{}}
+{"version":{"major":1,"minor":0},"id":"hello-1","result":{"name":"vela-core","core_version":"0.1.0","protocol_version":{"major":1,"minor":0}}}
+{"version":{"major":1,"minor":0},"id":"stream-1","method":"stream.start","params":{"count":2,"interval_ms":10}}
+{"version":{"major":1,"minor":0},"id":"stream-1","result":{"accepted":true,"count":2}}
+{"version":{"major":1,"minor":0},"event":"stream.chunk","data":{"request_id":"stream-1","sequence":1,"text":"Deterministic chunk 1"}}
+{"version":{"major":1,"minor":0},"event":"stream.chunk","data":{"request_id":"stream-1","sequence":2,"text":"Deterministic chunk 2"}}
+{"version":{"major":1,"minor":0},"event":"stream.completed","data":{"request_id":"stream-1","emitted":2}}

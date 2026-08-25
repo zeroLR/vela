@@ -14,4 +14,17 @@ Expected responsibilities:
 - scheduler
 - structured diagnostics
 
-The concrete Cargo workspace is intentionally created during `plan/00-foundation.md`. ACP/provider-specific code must remain behind adapter boundaries and must not leak wire types into Vela domain contracts.
+The Cargo workspace now contains the Phase 00/01 skeleton:
+
+- `domain` owns the IPC protocol version primitive;
+- `assistant-ipc` owns the Unix-socket server and Vela protocol handling;
+- `vela-core` is the sidecar executable and structured diagnostics entry point.
+
+Build and test it with:
+
+```bash
+cargo build --manifest-path core/Cargo.toml --workspace
+cargo test --manifest-path core/Cargo.toml --workspace
+```
+
+ACP/provider-specific code must remain behind future adapter boundaries and must not leak wire types into Vela domain contracts.
