@@ -212,6 +212,42 @@ impl Workspace {
         self.snapshot()
     }
 
+    pub fn remove_file(
+        &self,
+        relative_path: &str,
+        provenance: WorkspaceProvenance,
+        correlation_id: Option<&str>,
+    ) -> Result<WorkspaceSnapshot, WorkspaceError> {
+        let relative = validate_relative_path(relative_path)?;
+        if relative.starts_with(".vela") || relative == Path::new(REFERENCES_RELATIVE_PATH) {
+            return Err(WorkspaceError(format!(
+                "Path is reserved by Vela: {relative_path}"
+            )));
+        }
+        let target = safe_write_target(&self.root, &relative)?;
+        if target.exists() {
+            let metadata = fs::symlink_metadata(&target)?;
+            if !metadata.file_type().is_file() {
+                return Err(WorkspaceError(format!(
+                    "Only regular workspace files can be removed: {relative_path}"
+                )));
+            }
+            fs::remove_file(target)?;
+        }
+        self.reconcile(provenance, correlation_id)?;
+        self.snapshot()
+    }
+
+    pub fn record_event(
+        &self,
+        kind: &str,
+        path: Option<&str>,
+        provenance: WorkspaceProvenance,
+        correlation_id: Option<&str>,
+    ) -> Result<WorkspaceEvent, WorkspaceError> {
+        insert_event(&self.connection()?, kind, path, provenance, correlation_id)
+    }
+
     pub fn add_reference(
         &self,
         path: impl AsRef<Path>,

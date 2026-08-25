@@ -134,6 +134,57 @@ pub struct WorkspaceContextSlice {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CaptureSource {
+    Text,
+    Speech,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CaptureIntent {
+    Note,
+    Idea,
+    Todo,
+    WorkUpdate,
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CaptureStatus {
+    Completed,
+    Abandoned,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CaptureRecord {
+    pub id: String,
+    pub source: CaptureSource,
+    pub status: CaptureStatus,
+    pub raw_text: String,
+    pub normalized_text: String,
+    pub suggested_intent: CaptureIntent,
+    pub intent: CaptureIntent,
+    pub title: String,
+    pub routed_path: Option<String>,
+    pub started_at_ms: u64,
+    pub completed_at_ms: u64,
+    pub correction_count: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CaptureMetrics {
+    pub total_captures: u64,
+    pub completed_captures: u64,
+    pub abandoned_captures: u64,
+    pub captures_since: u64,
+    pub corrected_captures: u64,
+    pub correction_rate_basis_points: u32,
+    pub median_completion_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlanEntry {
     pub content: String,
     pub status: String,
