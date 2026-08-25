@@ -589,6 +589,11 @@ mod tests {
         )
         .is_err());
         assert!(CaptureEngine::get(&workspace, "../STATUS").is_err());
+        assert_eq!(super::classify("待辦：整理 Phase 06"), CaptureIntent::Todo);
+        assert_eq!(
+            super::classify("目前卡在麥克風權限"),
+            CaptureIntent::WorkUpdate
+        );
         fs::create_dir_all(root.join("captures")).unwrap();
         fs::write(root.join("captures/corrupt.json"), "not json").unwrap();
         assert!(CaptureEngine::metrics(&workspace, 0).is_err());
