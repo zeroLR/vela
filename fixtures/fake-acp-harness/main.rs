@@ -15,6 +15,11 @@ enum Scenario {
     Invalid,
     Unauthenticated,
     Incompatible,
+    Cancel,
+    PromptTimeout,
+    UnexpectedExit,
+    MalformedEvent,
+    Permission,
 }
 
 impl Scenario {
@@ -24,6 +29,11 @@ impl Scenario {
             "invalid" => Self::Invalid,
             "unauthenticated" => Self::Unauthenticated,
             "incompatible" => Self::Incompatible,
+            "cancel" => Self::Cancel,
+            "prompt-timeout" => Self::PromptTimeout,
+            "unexpected-exit" => Self::UnexpectedExit,
+            "malformed-event" => Self::MalformedEvent,
+            "permission" => Self::Permission,
             _ => Self::Ready,
         }
     }
@@ -45,6 +55,7 @@ fn main() {
     }
 
     let stdin = io::stdin();
+    let mut pending_prompt = None;
     for line in stdin.lock().lines() {
         let Ok(line) = line else {
             break;
@@ -54,7 +65,26 @@ fn main() {
             Err(_) => continue,
         };
         let id = request.get("id").cloned().unwrap_or(Value::Null);
-        respond(scenario, id);
+        match request.get("method").and_then(Value::as_str) {
+            Some("initialize") => respond_initialize(scenario, id),
+            Some("session/new") => write_json(json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": {"sessionId": "fake-session-1"}
+            })),
+            Some("session/prompt") => respond_prompt(scenario, id, &mut pending_prompt),
+            Some("session/cancel") if !matches!(scenario, Scenario::PromptTimeout) => {
+                if let Some(prompt_id) = pending_prompt.take() {
+                    prompt_response(prompt_id, "cancelled");
+                }
+            }
+            _ if id == json!("permission-1") => {
+                if let Some(prompt_id) = pending_prompt.take() {
+                    prompt_response(prompt_id, "cancelled");
+                }
+            }
+            _ => {}
+        }
     }
 }
 
@@ -65,7 +95,7 @@ fn option_value(arguments: &[String], option: &str) -> Option<String> {
         .map(|items| items[1].clone())
 }
 
-fn respond(scenario: Scenario, id: Value) {
+fn respond_initialize(scenario: Scenario, id: Value) {
     match scenario {
         Scenario::Timeout => thread::sleep(Duration::from_secs(30)),
         Scenario::Invalid => write_line("not-json"),
@@ -79,7 +109,12 @@ fn respond(scenario: Scenario, id: Value) {
             "id": id,
             "error": {"code": -32602, "message": "incompatible protocol version"}
         })),
-        Scenario::Ready => write_json(json!({
+        Scenario::Ready
+        | Scenario::Cancel
+        | Scenario::PromptTimeout
+        | Scenario::UnexpectedExit
+        | Scenario::MalformedEvent
+        | Scenario::Permission => write_json(json!({
             "jsonrpc": "2.0",
             "id": id,
             "result": {
@@ -99,6 +134,91 @@ fn respond(scenario: Scenario, id: Value) {
             }
         })),
     }
+}
+
+fn respond_prompt(scenario: Scenario, id: Value, pending_prompt: &mut Option<Value>) {
+    match scenario {
+        Scenario::Ready => {
+            session_update(json!({
+                "sessionUpdate": "agent_message_chunk",
+                "content": {"type": "text", "text": "Hello "}
+            }));
+            session_update(json!({
+                "sessionUpdate": "plan",
+                "entries": [{"content": "Inspect workspace", "priority": "high", "status": "in_progress"}]
+            }));
+            session_update(json!({
+                "sessionUpdate": "tool_call",
+                "toolCallId": "tool-1",
+                "title": "Read files",
+                "kind": "read",
+                "status": "in_progress"
+            }));
+            session_update(json!({
+                "sessionUpdate": "tool_call_update",
+                "toolCallId": "tool-1",
+                "status": "completed"
+            }));
+            session_update(json!({"sessionUpdate": "usage_update", "used": 12, "size": 4096}));
+            session_update(json!({
+                "sessionUpdate": "agent_message_chunk",
+                "content": {"type": "text", "text": "from fake ACP."}
+            }));
+            prompt_response(id, "end_turn");
+        }
+        Scenario::Cancel => {
+            session_update(json!({
+                "sessionUpdate": "agent_message_chunk",
+                "content": {"type": "text", "text": "Working..."}
+            }));
+            *pending_prompt = Some(id);
+        }
+        Scenario::PromptTimeout => *pending_prompt = Some(id),
+        Scenario::UnexpectedExit => {
+            eprintln!("fake harness exited during prompt");
+            std::process::exit(17);
+        }
+        Scenario::MalformedEvent => {
+            write_line("not-json");
+            std::process::exit(18);
+        }
+        Scenario::Permission => {
+            *pending_prompt = Some(id);
+            write_json(json!({
+                "jsonrpc": "2.0",
+                "id": "permission-1",
+                "method": "session/request_permission",
+                "params": {
+                    "sessionId": "fake-session-1",
+                    "toolCall": {"toolCallId": "tool-2", "title": "Write file", "status": "pending"},
+                    "options": [
+                        {"optionId": "allow", "name": "Allow once", "kind": "allow_once"},
+                        {"optionId": "reject", "name": "Reject", "kind": "reject_once"}
+                    ]
+                }
+            }));
+        }
+        Scenario::Timeout
+        | Scenario::Invalid
+        | Scenario::Unauthenticated
+        | Scenario::Incompatible => {}
+    }
+}
+
+fn session_update(update: Value) {
+    write_json(json!({
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {"sessionId": "fake-session-1", "update": update}
+    }));
+}
+
+fn prompt_response(id: Value, stop_reason: &str) {
+    write_json(json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "result": {"stopReason": stop_reason}
+    }));
 }
 
 fn write_json(value: Value) {

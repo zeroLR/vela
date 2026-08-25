@@ -59,6 +59,90 @@ pub struct AgentRegistrySnapshot {
     pub agents: Vec<AgentDescriptor>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionState {
+    Starting,
+    Ready,
+    Running,
+    Completed,
+    Cancelled,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionDescriptor {
+    pub id: String,
+    pub agent_id: String,
+    pub acp_session_id: String,
+    pub process_id: u32,
+    pub cwd: String,
+    pub state: SessionState,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlanEntry {
+    pub content: String,
+    pub status: String,
+    pub priority: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AgentEventPayload {
+    TextDelta {
+        text: String,
+    },
+    PlanUpdated {
+        entries: Vec<PlanEntry>,
+    },
+    ToolStarted {
+        tool_call_id: String,
+        title: String,
+    },
+    ToolFinished {
+        tool_call_id: String,
+        status: String,
+    },
+    PermissionRequested {
+        tool_call_id: String,
+        title: Option<String>,
+        options: Vec<String>,
+    },
+    UsageUpdated {
+        used: u64,
+        size: u64,
+    },
+    Completed {
+        stop_reason: String,
+    },
+    Cancelled,
+    Failed {
+        code: String,
+        message: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentEvent {
+    pub session_id: String,
+    pub run_id: String,
+    pub request_id: String,
+    pub sequence: u64,
+    pub timestamp_ms: u64,
+    #[serde(flatten)]
+    pub payload: AgentEventPayload,
+}
+
+impl AgentEventPayload {
+    pub fn is_terminal(&self) -> bool {
+        matches!(
+            self,
+            Self::Completed { .. } | Self::Cancelled | Self::Failed { .. }
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::ProtocolVersion;

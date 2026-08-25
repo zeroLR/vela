@@ -55,7 +55,7 @@ struct JsonSubscriber {
 
 impl Subscriber for JsonSubscriber {
     fn enabled(&self, _metadata: &Metadata<'_>) -> bool {
-        true
+        *_metadata.level() <= tracing::Level::INFO
     }
 
     fn new_span(&self, _span: &Attributes<'_>) -> Id {

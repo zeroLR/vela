@@ -56,6 +56,41 @@ impl DiscoveryService {
         self.snapshot.read().await.clone()
     }
 
+    pub async fn launch_spec(&self, agent_id: &str) -> Result<AcpLaunchSpec, String> {
+        let snapshot = self.snapshot.read().await;
+        let agent = snapshot
+            .agents
+            .iter()
+            .find(|agent| agent.id == agent_id)
+            .ok_or_else(|| format!("Unknown agent: {agent_id}"))?;
+        if agent.status != AgentStatus::Ready {
+            return Err(format!("Agent {agent_id} is not ready"));
+        }
+        let missing: Vec<&str> = ["session.new", "session.prompt", "session.cancel"]
+            .into_iter()
+            .filter(|capability| !agent.capabilities.iter().any(|item| item == capability))
+            .collect();
+        if !missing.is_empty() {
+            return Err(format!(
+                "Agent {agent_id} lacks required capabilities: {}",
+                missing.join(", ")
+            ));
+        }
+        let executable = agent
+            .executable_path
+            .as_deref()
+            .ok_or_else(|| format!("Agent {agent_id} has no executable path"))?;
+        let (definitions, _) = load_definitions(self.options.config_path.as_deref());
+        let definition = definitions
+            .into_iter()
+            .find(|definition| definition.id == agent_id)
+            .ok_or_else(|| "Agent definition changed; refresh discovery".to_owned())?;
+        Ok(AcpLaunchSpec {
+            executable: PathBuf::from(executable),
+            arguments: definition.launch_arguments,
+        })
+    }
+
     pub async fn refresh(&self) -> AgentRegistrySnapshot {
         let (definitions, mut agents) = load_definitions(self.options.config_path.as_deref());
         let mut tasks = JoinSet::new();
