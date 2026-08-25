@@ -25,6 +25,11 @@ Peers accept different minor versions and reject different major versions. Reque
 | `workspace.events` | optional `limit` | Returns up to 500 ordered workspace events |
 | `workspace.rebuild` | `{}` | Rebuilds the derived SQLite index and returns `WorkspaceSnapshot` |
 | `workspace.context` | `scope`, optional `path`/`reference_id` | Returns an explicit bounded `WorkspaceContextSlice` |
+| `capture.create` | `source`, `raw_text`, optional `intent`/`started_at_ms` | Classifies, routes, and returns a durable `CaptureRecord` |
+| `capture.abandon` | `source`, optional `raw_text`/`started_at_ms` | Retains an abandoned attempt without routing it |
+| `capture.correct` | `capture_id`, `intent` | Moves the owned route and returns the corrected record |
+| `capture.list` | optional `limit` | Returns up to 500 recent canonical capture records |
+| `capture.metrics` | optional `since_ms` | Returns locally derived completion/correction metrics |
 | `session.create` | `agent_id`, optional `cwd` | Creates an ACP process/session and returns a `SessionDescriptor` |
 | `session.get` | `session_id` | Returns the current `SessionDescriptor` |
 | `session.prompt` | `session_id`, `text` | Accepts a run and returns `run_id` plus the ACP request correlation ID |
@@ -75,6 +80,14 @@ Status is one of `unavailable`, `ready`, `unauthenticated`, `incompatible`, or `
 - `reference_path`: requires `reference_id` and a relative `path`.
 
 Each returned file is capped at 32 KiB and carries `truncated`. Paths cannot traverse outside their selected root. See [`../docs/WORKSPACE.md`](../docs/WORKSPACE.md) for ownership, indexing, watcher, and recovery semantics.
+
+## Capture contract
+
+Capture sources are `text` and `speech`; intents are `note`, `idea`, `todo`, `work_update`, and `unknown`. `capture.create` preserves both `raw_text` and Core's normalized/suggested interpretation. Passing `intent` is an explicit user override. `started_at_ms` defaults to receipt time when omitted.
+
+`CaptureRecord` contains status, raw/normalized text, suggested/current intent, title, routed path, timestamps, and correction count. A correction never overwrites the original suggestion. Capture failures use `capture_error` and retain the request ID.
+
+`capture.metrics` treats `since_ms` as a caller-defined reporting boundary, allowing Swift to supply the user's local start-of-day without adding timezone policy to Core. Correction rate is an integer `correction_rate_basis_points`; completion latency is `median_completion_ms`. See [`../docs/CAPTURE.md`](../docs/CAPTURE.md) for native interaction and routing behavior.
 
 ## Agent events
 

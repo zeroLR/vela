@@ -15,7 +15,7 @@ Expected responsibilities:
 
 Do not place ACP/provider protocol logic here. The app consumes Vela-owned IPC/domain events only.
 
-The Phase 00–04 Swift package contains a native SwiftUI diagnostics app, an IPC client, and a `vela-core` process supervisor. The diagnostics screen discovers agents, creates a selected ACP session, submits text, renders Vela-owned streaming events, cancels the active run, and queues native permission decisions without provider-specific Swift logic.
+The Phase 00–06 Swift package contains a native SwiftUI diagnostics app, an IPC client, a `vela-core` process supervisor, and a floating text/speech capture panel. `⌥Space` opens Quick Capture; the last workspace reopens after the Core handshake. Typed or push-to-talk input can be reviewed, routed, and corrected without provider-specific Swift logic or an ACP session.
 
 From the repository root:
 
@@ -25,4 +25,4 @@ swift test --package-path app
 VELA_CORE_PATH="$PWD/core/target/debug/vela-core" swift run --package-path app VelaApp
 ```
 
-The debug screen can run and cancel a deterministic 20-event stream, terminate Core, and explicitly restart/reconnect without relaunching the app. The supervisor also checks the development build location when `VELA_CORE_PATH` is not set.
+The debug screen can inspect capture metrics/routes, run and cancel a deterministic 20-event stream, terminate Core, and explicitly restart/reconnect without relaunching the app. The supervisor also checks the development build location when `VELA_CORE_PATH` is not set. Microphone and Speech permissions are requested only when the push-to-talk control is used.

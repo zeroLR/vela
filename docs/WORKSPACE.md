@@ -42,7 +42,7 @@ The database contains three tables:
 
 The engine opens short-lived SQLite connections and uses a busy timeout. Deleting `.vela/index.sqlite3` is supported: reopening the workspace recreates the schema, scans canonical workspace/reference files, restores the derived reference index, and records `workspace.index_rebuilt`.
 
-Current event kinds are `workspace.created`, `workspace.index_rebuilt`, `workspace.file_changed`, `reference.added`, and `reference.removed`. Capture/task/state-specific events are added with their owning operations in Phase 06; the workspace event schema already carries their required provenance and correlation fields.
+Workspace event kinds include `workspace.created`, `workspace.index_rebuilt`, `workspace.file_changed`, `reference.added`, and `reference.removed`. Phase 06 adds `capture.created`, `capture.routed`, `capture.corrected`, `capture.abandoned`, `task.created`, and `state.updated` through their owning operations.
 
 Provenance is one of `user`, `agent`, `tool`, `scheduler`, `external_filesystem`, or `system`. IPC writes accept the first four; watcher observations and index lifecycle events are assigned by Core. The originating IPC request ID is retained as the correlation ID for explicit writes and reference changes.
 
