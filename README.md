@@ -54,7 +54,7 @@ The detailed, acceptance-test-driven execution plan lives in [`plan/`](plan/READ
 
 ## Development
 
-Phase 00–02 establish the Swift/Rust skeleton, local IPC vertical slice, and ACP harness discovery. The debug app supervises `vela-core`, performs an IPC v1 handshake, renders a deterministic pushed event stream, and shows the refreshable Core-owned Claude/Codex/custom ACP adapter registry.
+Phase 00–03 establish the Swift/Rust skeleton, local IPC, ACP harness discovery, and the first complete ACP session runtime. The debug app can select a ready adapter, create a process/session, submit text, render normalized streaming events, cancel a run, and recover by creating a new session after adapter failure.
 
 ```bash
 cargo build --manifest-path core/Cargo.toml --workspace
@@ -66,4 +66,4 @@ See [`schemas/ipc-v1.md`](schemas/ipc-v1.md) for the wire contract, [`schemas/ha
 
 ## Status
 
-Phase 00–02 implementation and validation. Discovery initializes ACP adapters and normalizes their advertised capabilities; real sessions/prompts, workspace, capture, and avatar behavior remain intentionally out of scope.
+Phase 00–03 implementation and validation. Fake ACP sessions are deterministic end to end; real adapter verification remains conditional on a locally installed adapter. Permission decisions, workspace, capture, and avatar behavior remain intentionally out of scope.

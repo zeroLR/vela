@@ -52,16 +52,16 @@ From the macOS app, a user can select a discovered agent, create a session, subm
 
 ## Acceptance Criteria
 
-- [ ] Session creation works through a Vela-owned API.
-- [ ] UI renders streamed text without using ACP wire types.
-- [ ] Exactly one terminal event is accepted per run.
-- [ ] Cancellation propagates to the harness and terminates local run state.
-- [ ] Unexpected agent-process exit mid-run produces a normalized failure and releases resources.
-- [ ] New sessions can be created after failure without restarting Vela Core.
-- [ ] Unsupported capabilities are handled explicitly rather than silently assumed.
-- [ ] Session IDs, process IDs, and request correlation IDs are present in diagnostics.
-- [ ] Fake harness integration tests cover success, cancel, unexpected exit, malformed event, and timeout.
-- [ ] At least one real Claude or Codex ACP path is manually verified if available locally.
+- [x] Session creation works through a Vela-owned API.
+- [x] UI renders streamed text without using ACP wire types.
+- [x] Exactly one terminal event is accepted per run.
+- [x] Cancellation propagates to the harness and terminates local run state.
+- [x] Unexpected agent-process exit mid-run produces a normalized failure and releases resources.
+- [x] New sessions can be created after failure without restarting Vela Core.
+- [x] Unsupported capabilities are handled explicitly rather than silently assumed.
+- [x] Session IDs, process IDs, and request correlation IDs are present in diagnostics.
+- [x] Fake harness integration tests cover success, cancel, unexpected exit, malformed event, and timeout.
+- [x] At least one real Claude or Codex ACP path is manually verified if available locally. (No ACP adapter was installed on the validation machine; provider CLIs alone remain unavailable by design.)
 
 ## Validation Procedure
 

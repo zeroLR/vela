@@ -16,6 +16,10 @@ Peers accept different minor versions and reject different major versions. Reque
 | `core.health` | `{}` | `{ "status": "healthy" }` |
 | `agents.list` | `{}` | Last cached `AgentRegistrySnapshot`; does not launch probes |
 | `agents.refresh` | `{}` | Runs discovery and returns the new `AgentRegistrySnapshot` |
+| `session.create` | `agent_id`, optional `cwd` | Creates an ACP process/session and returns a `SessionDescriptor` |
+| `session.get` | `session_id` | Returns the current `SessionDescriptor` |
+| `session.prompt` | `session_id`, `text` | Accepts a run and returns `run_id` plus the ACP request correlation ID |
+| `session.cancel` | `session_id`, `run_id` | Requests ACP `session/cancel` for the active run |
 | `stream.start` | `count`, `interval_ms` | Stream acceptance; subsequent events use this request ID |
 | `stream.cancel` | `target_request_id` | Whether cancellation was requested |
 
@@ -44,6 +48,38 @@ Peers accept different minor versions and reject different major versions. Reque
 ```
 
 Status is one of `unavailable`, `ready`, `unauthenticated`, `incompatible`, or `failed`. A refresh increments `generation`; clients should ignore an older result arriving after a newer one.
+
+## Agent events
+
+After `session.prompt` succeeds, Core pushes `agent.event` messages. The `data` object always contains `session_id`, `run_id`, originating IPC `request_id`, one-based `sequence`, and `timestamp_ms`. Its Vela-owned `kind` is one of:
+
+- `text_delta`
+- `plan_updated`
+- `tool_started`
+- `tool_finished`
+- `permission_requested`
+- `usage_updated`
+- `completed`
+- `cancelled`
+- `failed`
+
+```json
+{
+  "version": { "major": 1, "minor": 0 },
+  "event": "agent.event",
+  "data": {
+    "session_id": "session-123-1",
+    "run_id": "run-123-2",
+    "request_id": "prompt-request-1",
+    "sequence": 1,
+    "timestamp_ms": 1787663385500,
+    "kind": "text_delta",
+    "text": "Hello"
+  }
+}
+```
+
+`completed`, `cancelled`, and `failed` are terminal. Core emits exactly one terminal event per accepted run; clients must ignore any later event carrying that run ID. Permission requests are surfaced but safely cancelled until the Phase 04 permission broker owns decisions.
 
 ## Stream events
 
