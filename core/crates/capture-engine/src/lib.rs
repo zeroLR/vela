@@ -157,21 +157,7 @@ impl CaptureEngine {
     }
 
     pub fn list(workspace: &Workspace, limit: usize) -> Result<Vec<CaptureRecord>, CaptureError> {
-        let directory = workspace.root().join("captures");
-        if !directory.is_dir() {
-            return Ok(Vec::new());
-        }
-        let mut records = fs::read_dir(directory)?
-            .filter_map(Result::ok)
-            .filter(|entry| {
-                entry
-                    .path()
-                    .extension()
-                    .is_some_and(|value| value == "json")
-            })
-            .filter_map(|entry| fs::read(entry.path()).ok())
-            .filter_map(|bytes| serde_json::from_slice::<CaptureRecord>(&bytes).ok())
-            .collect::<Vec<_>>();
+        let mut records = read_records(workspace)?;
         records.sort_by_key(|record| record.completed_at_ms);
         records.reverse();
         records.truncate(limit.clamp(1, 500));
@@ -179,7 +165,7 @@ impl CaptureEngine {
     }
 
     pub fn metrics(workspace: &Workspace, since_ms: u64) -> Result<CaptureMetrics, CaptureError> {
-        let records = Self::list(workspace, 500)?;
+        let records = read_records(workspace)?;
         let completed = records
             .iter()
             .filter(|record| record.status == CaptureStatus::Completed)
@@ -219,6 +205,23 @@ impl CaptureEngine {
             median_completion_ms,
         })
     }
+}
+
+fn read_records(workspace: &Workspace) -> Result<Vec<CaptureRecord>, CaptureError> {
+    let directory = workspace.root().join("captures");
+    if !directory.is_dir() {
+        return Ok(Vec::new());
+    }
+    let mut records = Vec::new();
+    for entry in fs::read_dir(directory)? {
+        let entry = entry?;
+        if entry.path().extension().is_none_or(|value| value != "json") {
+            continue;
+        }
+        let bytes = fs::read(entry.path())?;
+        records.push(serde_json::from_slice(&bytes)?);
+    }
+    Ok(records)
 }
 
 pub fn classify(text: &str) -> CaptureIntent {
@@ -586,6 +589,9 @@ mod tests {
         )
         .is_err());
         assert!(CaptureEngine::get(&workspace, "../STATUS").is_err());
+        fs::create_dir_all(root.join("captures")).unwrap();
+        fs::write(root.join("captures/corrupt.json"), "not json").unwrap();
+        assert!(CaptureEngine::metrics(&workspace, 0).is_err());
         fs::remove_dir_all(root).unwrap();
     }
 }
