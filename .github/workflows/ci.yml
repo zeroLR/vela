@@ -12,7 +12,7 @@ jobs:
         working-directory: core
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.88.0
         with:
           components: clippy,rustfmt
       - run: cargo fmt --all --check
@@ -34,7 +34,7 @@ jobs:
     needs: [rust, swift]
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.88.0
       - run: cargo build --manifest-path core/Cargo.toml --workspace
       - run: swift test --package-path app
         env:

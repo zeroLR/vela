@@ -20,6 +20,45 @@ impl ProtocolVersion {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentStatus {
+    Unavailable,
+    Ready,
+    Unauthenticated,
+    Incompatible,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentSource {
+    BuiltIn,
+    UserDefined,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentDescriptor {
+    pub id: String,
+    pub display_name: String,
+    pub adapter: String,
+    pub source: AgentSource,
+    pub status: AgentStatus,
+    pub executable_path: Option<String>,
+    pub version: Option<String>,
+    pub protocol_version: Option<String>,
+    pub capabilities: Vec<String>,
+    pub auth_methods: Vec<String>,
+    pub diagnostic: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentRegistrySnapshot {
+    pub generation: u64,
+    pub refreshed_at_ms: u64,
+    pub agents: Vec<AgentDescriptor>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::ProtocolVersion;
