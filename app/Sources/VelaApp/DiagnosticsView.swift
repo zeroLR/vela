@@ -3,6 +3,15 @@ import VelaAvatar
 import VelaIPC
 
 struct DiagnosticsView: View {
+    private enum Tab: String, CaseIterable, Identifiable {
+        case overview = "Overview"
+        case workspace = "Workspace"
+        case acp = "ACP"
+        case diagnostics = "Diagnostics"
+
+        var id: Self { self }
+    }
+
     let environment: AppEnvironment
     @ObservedObject private var client: IPCClient
     @ObservedObject private var supervisor: CoreProcessSupervisor
@@ -13,6 +22,7 @@ struct DiagnosticsView: View {
     @State private var workspaceRoot = FileManager.default.currentDirectoryPath
     @State private var workspaceStatus = ""
     @State private var referencePath = ""
+    @State private var selectedTab: Tab = .overview
 
     init(environment: AppEnvironment) {
         self.environment = environment
@@ -34,48 +44,24 @@ struct DiagnosticsView: View {
                 statusBadge
             }
 
-            GroupBox("Runtime") {
-                Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
-                    GridRow { Text("Core"); Text(supervisor.state.rawValue) }
-                    GridRow { Text("IPC"); Text(client.state.rawValue) }
-                    GridRow { Text("Socket"); Text(supervisor.socketPath).textSelection(.enabled) }
-                    GridRow {
-                        Text("Executable")
-                        Text(supervisor.executablePath ?? "Not resolved").textSelection(.enabled)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+            TabView(selection: $selectedTab) {
+                overviewTab
+                    .tabItem { Label(Tab.overview.rawValue, systemImage: "rectangle.3.group") }
+                    .tag(Tab.overview)
+                workspaceTab
+                    .tabItem { Label(Tab.workspace.rawValue, systemImage: "folder") }
+                    .tag(Tab.workspace)
+                acpTab
+                    .tabItem { Label(Tab.acp.rawValue, systemImage: "cpu") }
+                    .tag(Tab.acp)
+                diagnosticsTab
+                    .tabItem { Label(Tab.diagnostics.rawValue, systemImage: "waveform.path.ecg") }
+                    .tag(Tab.diagnostics)
             }
-
-            HStack {
-                Button("Start / Restart Core") { Task { await environment.restart() } }
-                Button("Health") { client.requestHealth() }
-                    .disabled(client.state != .ready)
-                Button("Quick Capture") { environment.showQuickCapture() }
-                    .disabled(client.workspace == nil)
-                Button("Start 20-event Stream") { client.startStream() }
-                    .disabled(client.state != .ready || client.activeStreamRequestID != nil)
-                Button("Cancel Stream") { client.cancelStream() }
-                    .disabled(client.activeStreamRequestID == nil)
-                Button("Kill Core") { supervisor.killForDiagnostics() }
-                    .disabled(supervisor.state != .running)
-            }
-
-            workspacePanel
-            capturePanel
-            currentStatePanel
-            avatarPanel
-            agentList
-            sessionPanel
-            permissionPanel
-
-            HSplitView {
-                eventList
-                diagnosticList
-            }
+            .frame(maxHeight: .infinity)
         }
         .padding(20)
-        .frame(minWidth: 900, minHeight: 1600)
+        .frame(minWidth: 900, minHeight: 760)
         .onChange(of: client.agentRegistry.agents) { _, agents in
             if !agents.contains(where: { $0.id == selectedAgentID && $0.status == .ready }) {
                 selectedAgentID = agents.first(where: { $0.status == .ready })?.id ?? ""
@@ -95,6 +81,71 @@ struct DiagnosticsView: View {
             .padding(.vertical, 6)
             .background(client.state == .ready ? Color.green.opacity(0.2) : Color.orange.opacity(0.2))
             .clipShape(Capsule())
+    }
+
+    private var overviewTab: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            runtimePanel
+            runtimeControls
+            avatarPanel
+            currentStatePanel
+            Spacer()
+        }
+    }
+
+    private var workspaceTab: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            workspacePanel
+            capturePanel
+            Spacer()
+        }
+    }
+
+    private var acpTab: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            agentList
+            sessionPanel
+            permissionPanel
+            Spacer()
+        }
+    }
+
+    private var diagnosticsTab: some View {
+        HSplitView {
+            eventList
+            diagnosticList
+        }
+    }
+
+    private var runtimePanel: some View {
+        GroupBox("Runtime") {
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
+                GridRow { Text("Core"); Text(supervisor.state.rawValue) }
+                GridRow { Text("IPC"); Text(client.state.rawValue) }
+                GridRow { Text("Socket"); Text(supervisor.socketPath).textSelection(.enabled) }
+                GridRow {
+                    Text("Executable")
+                    Text(supervisor.executablePath ?? "Not resolved").textSelection(.enabled)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var runtimeControls: some View {
+        HStack {
+            Button("Start / Restart Core") { Task { await environment.restart() } }
+            Button("Health") { client.requestHealth() }
+                .disabled(client.state != .ready)
+            Button("Quick Capture") { environment.showQuickCapture() }
+                .disabled(client.workspace == nil)
+            Button("Start 20-event Stream") { client.startStream() }
+                .disabled(client.state != .ready || client.activeStreamRequestID != nil)
+            Button("Cancel Stream") { client.cancelStream() }
+                .disabled(client.activeStreamRequestID == nil)
+            Button("Kill Core") { supervisor.killForDiagnostics() }
+                .disabled(supervisor.state != .running)
+        }
     }
 
     private var eventList: some View {
