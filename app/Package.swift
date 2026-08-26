@@ -12,10 +12,12 @@ let package = Package(
     name: "VelaApp",
     platforms: [.macOS(.v14)],
     products: [
+        .library(name: "VelaAvatar", targets: ["VelaAvatar"]),
         .library(name: "VelaIPC", targets: ["VelaIPC"]),
         .executable(name: "VelaApp", targets: ["VelaApp"]),
     ],
     targets: [
+        .target(name: "VelaAvatar"),
         .target(name: "VelaIPC"),
         .executableTarget(
             name: "VelaApp",
@@ -30,6 +32,7 @@ let package = Package(
                 ]),
             ]
         ),
+        .testTarget(name: "VelaAvatarTests", dependencies: ["VelaAvatar"]),
         .testTarget(name: "VelaIPCTests", dependencies: ["VelaIPC"]),
     ],
     swiftLanguageModes: [.v6]
