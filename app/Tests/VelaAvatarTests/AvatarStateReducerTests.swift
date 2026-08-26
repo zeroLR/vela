@@ -85,4 +85,49 @@ struct AvatarStateReducerTests {
             #expect(resolution.state == .idle)
         }
     }
+
+    @Test("a throwing runtime is disabled without changing the semantic state machine")
+    @MainActor
+    func throwingRuntimeIsolated() {
+        let runtime = ThrowingAvatarRuntime()
+        let controller = AvatarController(runtime: runtime)
+
+        #expect(!controller.isRuntimeEnabled)
+        #expect(controller.state == .idle)
+        #expect(controller.errors.count == 1)
+
+        controller.setManualState(.thinking)
+        #expect(controller.state == .thinking)
+        #expect(!controller.isRuntimeEnabled)
+    }
+
+    @Test("recording remains listening until the push-to-talk signal ends")
+    @MainActor
+    func listeningSignalPersistsAcrossWatchdogRefreshes() {
+        let controller = AvatarController()
+
+        controller.setListening(true)
+        controller.refresh()
+        #expect(controller.state == .listening)
+
+        controller.setListening(false)
+        #expect(controller.state == .idle)
+    }
+}
+
+@MainActor
+private final class ThrowingAvatarRuntime: AvatarRuntime {
+    private enum Failure: LocalizedError {
+        case load
+
+        var errorDescription: String? { "intentional test failure" }
+    }
+
+    func load() throws { throw Failure.load }
+    func unload() {}
+    func setState(_: AvatarState) throws {}
+    func setExpression(_: String?) throws {}
+    func playMotion(_: String) throws {}
+    func setLipSync(_: Double) throws {}
+    func lookAt(x _: Double, y _: Double) throws {}
 }

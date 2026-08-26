@@ -1,10 +1,12 @@
 import SwiftUI
+import VelaAvatar
 import VelaIPC
 
 struct DiagnosticsView: View {
     let environment: AppEnvironment
     @ObservedObject private var client: IPCClient
     @ObservedObject private var supervisor: CoreProcessSupervisor
+    @ObservedObject private var avatar: AvatarController
     @State private var selectedAgentID = ""
     @State private var sessionCWD = FileManager.default.currentDirectoryPath
     @State private var promptText = "Summarize this workspace briefly."
@@ -16,6 +18,7 @@ struct DiagnosticsView: View {
         self.environment = environment
         client = environment.client
         supervisor = environment.supervisor
+        avatar = environment.avatar
     }
 
     var body: some View {
@@ -61,6 +64,7 @@ struct DiagnosticsView: View {
             workspacePanel
             capturePanel
             currentStatePanel
+            avatarPanel
             agentList
             sessionPanel
             permissionPanel
@@ -268,6 +272,43 @@ struct DiagnosticsView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         } label: {
             Text("Work State Answers")
+        }
+    }
+
+    private var avatarPanel: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text(avatar.state.rawValue.capitalized)
+                        .font(.headline)
+                    Text(avatar.lastTransitionReason)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text(avatar.isRuntimeEnabled ? "Runtime enabled" : "No renderer installed")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                HStack {
+                    ForEach(AvatarState.allCases, id: \.self) { state in
+                        Button(state.rawValue.capitalized) {
+                            avatar.setManualState(state)
+                        }
+                        .buttonStyle(.link)
+                    }
+                    Button("Automatic") { avatar.setManualState(nil) }
+                        .buttonStyle(.link)
+                }
+                if !avatar.errors.isEmpty {
+                    ForEach(avatar.errors, id: \.self) { error in
+                        Text(error)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+        } label: {
+            Text("Avatar Presence · Stage 07a")
         }
     }
 

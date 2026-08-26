@@ -5,10 +5,12 @@ import VelaIPC
 @MainActor
 final class QuickCapturePanelController {
     private let client: IPCClient
+    private let setAvatarListening: (Bool) -> Void
     private var panel: NSPanel?
 
-    init(client: IPCClient) {
+    init(client: IPCClient, setAvatarListening: @escaping (Bool) -> Void) {
         self.client = client
+        self.setAvatarListening = setAvatarListening
     }
 
     func show() {
@@ -30,7 +32,7 @@ final class QuickCapturePanelController {
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.contentView = NSHostingView(
-            rootView: QuickCaptureView(client: client) { [weak panel] in
+            rootView: QuickCaptureView(client: client, setAvatarListening: setAvatarListening) { [weak panel] in
                 panel?.orderOut(nil)
             }
         )
@@ -45,6 +47,7 @@ final class QuickCapturePanelController {
 
 private struct QuickCaptureView: View {
     @ObservedObject var client: IPCClient
+    let setAvatarListening: (Bool) -> Void
     let dismiss: () -> Void
 
     @StateObject private var speech = SpeechCaptureController()
@@ -165,6 +168,9 @@ private struct QuickCaptureView: View {
             rawText = transcript
             source = .speech
         }
+        .onChange(of: speech.isRecording) { _, isRecording in
+            setAvatarListening(isRecording)
+        }
         .onChange(of: client.captures) { _, captures in
             guard submitted else { return }
             if let capture = captures.first(where: { !knownCaptureIDs.contains($0.id) }) {
@@ -223,6 +229,7 @@ private struct QuickCaptureView: View {
 
     private func finish() {
         speech.stop()
+        setAvatarListening(false)
         if result != nil {
             speech.discardRecoveryAudio()
         }

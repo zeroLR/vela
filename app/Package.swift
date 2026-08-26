@@ -17,11 +17,11 @@ let package = Package(
         .executable(name: "VelaApp", targets: ["VelaApp"]),
     ],
     targets: [
-        .target(name: "VelaAvatar"),
+        .target(name: "VelaAvatar", dependencies: ["VelaIPC"]),
         .target(name: "VelaIPC"),
         .executableTarget(
             name: "VelaApp",
-            dependencies: ["VelaIPC"],
+            dependencies: ["VelaAvatar", "VelaIPC"],
             exclude: ["Info.plist"],
             linkerSettings: [
                 .unsafeFlags([
