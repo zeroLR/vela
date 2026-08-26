@@ -13,6 +13,14 @@ Stage 07a may begin once Gate B evidence is recorded, whatever its outcome — a
 failure changes what the presence layer should reflect, not whether the abstraction is
 needed.
 
+### Recorded exception — 2026-08-26
+
+The user explicitly directed work to enter Phase 07 before Gate B evidence was complete.
+This authorizes Stage 07a's isolated contract and reducer work only; it does not mark
+Gate B as passed or authorize the floating-presence work in Stage 07b. The remaining
+Phase 06 interaction validation and dogfood evidence stay required before Vela adds an
+always-visible presence surface.
+
 ## Hypothesis
 
 A semantic avatar layer can improve the sense of presence and provide immediate runtime
