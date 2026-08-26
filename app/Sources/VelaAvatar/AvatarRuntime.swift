@@ -78,6 +78,8 @@ public enum AvatarStateReducer {
 
 @MainActor
 public protocol AvatarRuntime: AnyObject {
+    var isPresentationVisible: Bool { get }
+    var lastRenderedAt: Date? { get }
     func load() throws
     func unload()
     func setState(_ state: AvatarState) throws
@@ -87,8 +89,15 @@ public protocol AvatarRuntime: AnyObject {
     func lookAt(x: Double, y: Double) throws
 }
 
+public extension AvatarRuntime {
+    var isPresentationVisible: Bool { false }
+    var lastRenderedAt: Date? { nil }
+}
+
 @MainActor
 public final class AvatarController: ObservableObject {
+    public static let renderHeartbeatTimeout: TimeInterval = 2
+
     @Published public private(set) var state: AvatarState = .idle
     @Published public private(set) var lastTransitionReason = "No runtime signal"
     @Published public private(set) var errors: [String] = []
@@ -112,6 +121,7 @@ public final class AvatarController: ObservableObject {
     private var lastClientSignature = ""
     private var lastClientSignalAt: Date?
     private var lastTextEventID: String?
+    private var renderFailureAt: Date?
     private var watchdogTask: Task<Void, Never>?
 
     public init(
@@ -198,6 +208,10 @@ public final class AvatarController: ObservableObject {
 
     public func refresh() {
         let currentTime = now()
+        if let renderHealthResolution = renderHealthResolution(at: currentTime) {
+            apply(renderHealthResolution)
+            return
+        }
         if let manualState, let manualStateAt {
             apply(AvatarStateReducer.resolve(manualInputs(manualState, at: manualStateAt, now: currentTime)))
         } else {
@@ -215,6 +229,26 @@ public final class AvatarController: ObservableObject {
             lastSignalAt: signalAt,
             now: now
         )
+    }
+
+    private func renderHealthResolution(at now: Date) -> AvatarStateResolution? {
+        guard let runtime, isRuntimeEnabled, runtime.isPresentationVisible else {
+            renderFailureAt = nil
+            return nil
+        }
+        if let lastRenderedAt = runtime.lastRenderedAt,
+           now.timeIntervalSince(lastRenderedAt) <= Self.renderHeartbeatTimeout {
+            renderFailureAt = nil
+            return nil
+        }
+        if renderFailureAt == nil {
+            renderFailureAt = now
+        }
+        guard let renderFailureAt else { return nil }
+        if now.timeIntervalSince(renderFailureAt) <= AvatarStateReducer.terminalDwell {
+            return AvatarStateResolution(state: .error, reason: "Avatar renderer stopped producing frames")
+        }
+        return AvatarStateResolution(state: .idle, reason: "Avatar renderer watchdog timed out")
     }
 
     private func clientInputs(at now: Date) -> AvatarInputs {

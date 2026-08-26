@@ -183,6 +183,32 @@ struct AvatarStateReducerTests {
         #expect(invalid.mapping == .builtIn)
         #expect(invalid.diagnostic != nil)
     }
+
+    @Test("visible renderers that stop producing frames transition through error then idle")
+    @MainActor
+    func renderWatchdog() {
+        let clock = TestClock(date: Date(timeIntervalSinceReferenceDate: 1_000))
+        let runtime = StalledAvatarRuntime(lastRenderedAt: clock.date.addingTimeInterval(-3))
+        let controller = AvatarController(runtime: runtime, now: { clock.date })
+
+        #expect(controller.state == .error)
+        clock.date = clock.date.addingTimeInterval(AvatarStateReducer.terminalDwell + 0.1)
+        controller.refresh()
+        #expect(controller.state == .idle)
+
+        runtime.lastRenderedAt = clock.date
+        controller.refresh()
+        #expect(controller.state == .idle)
+    }
+}
+
+@MainActor
+private final class TestClock {
+    var date: Date
+
+    init(date: Date) {
+        self.date = date
+    }
 }
 
 @MainActor
@@ -194,6 +220,24 @@ private final class ThrowingAvatarRuntime: AvatarRuntime {
     }
 
     func load() throws { throw Failure.load }
+    func unload() {}
+    func setState(_: AvatarState) throws {}
+    func setExpression(_: String?) throws {}
+    func playMotion(_: String) throws {}
+    func setLipSync(_: Double) throws {}
+    func lookAt(x _: Double, y _: Double) throws {}
+}
+
+@MainActor
+private final class StalledAvatarRuntime: AvatarRuntime {
+    let isPresentationVisible = true
+    var lastRenderedAt: Date?
+
+    init(lastRenderedAt: Date?) {
+        self.lastRenderedAt = lastRenderedAt
+    }
+
+    func load() throws {}
     func unload() {}
     func setState(_: AvatarState) throws {}
     func setExpression(_: String?) throws {}

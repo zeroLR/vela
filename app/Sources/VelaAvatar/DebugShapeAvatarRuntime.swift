@@ -31,6 +31,8 @@ public final class DebugShapeAvatarRuntime: AvatarRuntime, ObservableObject {
     @Published public private(set) var state: AvatarState = .idle
     @Published public private(set) var lipSync: Double = 0
     @Published public private(set) var isLoaded = false
+    @Published public private(set) var isPresentationVisible = false
+    @Published public private(set) var lastRenderedAt: Date?
 
     private(set) var expression: String?
     private(set) var motion: String?
@@ -65,6 +67,18 @@ public final class DebugShapeAvatarRuntime: AvatarRuntime, ObservableObject {
     public func lookAt(x: Double, y: Double) throws {
         lookAt = SIMD2(min(max(x, -1), 1), min(max(y, -1), 1))
     }
+
+    func setPresentationVisible(_ isVisible: Bool) {
+        isPresentationVisible = isVisible
+        if !isVisible {
+            lastRenderedAt = nil
+        }
+    }
+
+    func recordRenderedFrame(at date: Date) {
+        guard isPresentationVisible else { return }
+        lastRenderedAt = date
+    }
 }
 
 private struct DebugShapeAvatarView: View {
@@ -93,6 +107,21 @@ private struct DebugShapeAvatarView: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Avatar \(runtime.state.rawValue)")
+        .onAppear {
+            runtime.setPresentationVisible(true)
+            runtime.recordRenderedFrame(at: .now)
+        }
+        .onDisappear {
+            runtime.setPresentationVisible(false)
+        }
+        .background {
+            TimelineView(.animation(minimumInterval: 1 / 15, paused: false)) { context in
+                Color.clear
+                    .onChange(of: context.date) { _, date in
+                        runtime.recordRenderedFrame(at: date)
+                    }
+            }
+        }
     }
 
     private var color: Color {
