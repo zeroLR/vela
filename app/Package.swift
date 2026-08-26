@@ -33,7 +33,7 @@ let package = Package(
             ]
         ),
         .testTarget(name: "VelaAvatarTests", dependencies: ["VelaAvatar"]),
-        .testTarget(name: "VelaIPCTests", dependencies: ["VelaIPC"]),
+        .testTarget(name: "VelaIPCTests", dependencies: ["VelaAvatar", "VelaIPC"]),
     ],
     swiftLanguageModes: [.v6]
 )

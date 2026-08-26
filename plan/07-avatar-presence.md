@@ -249,16 +249,16 @@ vendor SDK present in the repository.
 
 ### Acceptance Criteria
 
-- [ ] Swift/UI code depends on `AvatarRuntime` only; no renderer type appears outside its adapter.
-- [ ] The reducer is a pure function with exhaustive unit coverage over the input matrix.
-- [ ] Every initial semantic state has a deterministic fallback reaction in the built-in renderer.
-- [ ] Watchdog rules return the avatar to `idle` from `success`, `error`, and every stalled non-`idle` state.
-- [ ] An adapter that throws on any call is disabled without affecting capture, workspace, or ACP.
-- [ ] Lip-sync input can be disabled independently of avatar state, and each source can be disabled independently of the other.
-- [ ] Expression/motion mappings are loaded from configuration; no mapping decision exists in agent prompt logic or in Core.
-- [ ] The protocol and mapping envelope contain no renderer-specific vocabulary, verified by writing a second adapter block for a hypothetical renderer without changing the schema.
-- [ ] Diagnostics expose avatar load, render, and state errors with the transition that caused them.
-- [ ] `scripts/check.sh` remains green with the new target and tests.
+- [x] Swift/UI code depends on `AvatarRuntime` only; no renderer type appears outside its adapter.
+- [x] The reducer is a pure function with exhaustive unit coverage over the input matrix.
+- [x] Every initial semantic state has a deterministic fallback reaction in the built-in renderer.
+- [x] Watchdog rules return the avatar to `idle` from `success`, `error`, and every stalled non-`idle` state.
+- [x] An adapter that throws on any call is disabled without affecting capture, workspace, or ACP.
+- [x] Lip-sync input can be disabled independently of avatar state, and each source can be disabled independently of the other.
+- [x] Expression/motion mappings are loaded from configuration; no mapping decision exists in agent prompt logic or in Core.
+- [x] The protocol and mapping envelope contain no renderer-specific vocabulary, verified by writing a second adapter block for a hypothetical renderer without changing the schema.
+- [x] Diagnostics expose avatar load, render, and state errors with the transition that caused them.
+- [x] `scripts/check.sh` remains green with the new target and tests.
 
 ### Validation Procedure
 
@@ -267,6 +267,35 @@ vendor SDK present in the repository.
 3. Trigger an ACP failure and verify recovery to the error/idle fallback.
 4. Kill Core mid-session and verify `error` then `idle`, with capture still functional.
 5. Inject a throwing adapter and verify the app continues with the avatar disabled.
+
+### Validation Record — 2026-08-26
+
+- Manual macOS validation passed for all six diagnostics states, Quick Capture
+  push-to-talk (`listening` plus microphone lip-sync), normal ACP streaming
+  (`thinking` → `speaking` → `success`), and an unexpected Core exit
+  (`error` → `idle` after about four seconds).
+- The Swift↔Rust vertical-slice test now starts the deterministic
+  `fake-unexpected-exit` ACP harness, sends a prompt, observes its normalized
+  terminal `failed` event through `IPCClient`, and asserts the built-in avatar
+  follows `error` → `idle`. Existing avatar tests cover the throwing-runtime
+  isolation path.
+- `scripts/measure-avatar-07a.sh <VelaApp PID>` provides the repeatable
+  process sample. On Apple silicon macOS 26.6.2, with the Overview tab visible
+  and no active ACP run, four 15-second `top` samples measured 2.75%, 2.98%,
+  2.05%, and 2.86% CPU: **2.66% over 60 seconds**, passing the ≤3% visible-idle
+  CPU threshold. The debug renderer heartbeat was reduced from 15 Hz to 1.5 Hz
+  because the original implementation exceeded that threshold.
+- VelaApp RSS samples were 85.14, 84.23, 82.53, and 82.23 MiB (83.53 MiB mean).
+  They are recorded as whole-application observations, not a renderer RSS
+  delta. Stage 07a has no enable/disable surface to establish a valid renderer
+  baseline; Stage 07b must measure disabled/hidden frames and the ≤20 MiB RSS
+  delta before its own resource gate can pass.
+- `scripts/check.sh` passed after this validation: 39 Rust tests and 20 Swift
+  tests.
+
+**Outcome:** Stage 07a's semantic-state and failure-isolation gate passes under the
+recorded Phase 06 Gate B exception. This does not authorize Stage 07b; Gate B dogfood
+evidence remains required before an always-visible surface is added.
 
 ---
 

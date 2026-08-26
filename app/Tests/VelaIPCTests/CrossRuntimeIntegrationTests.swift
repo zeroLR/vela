@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import Testing
+import VelaAvatar
 @testable import VelaIPC
 
 @Suite("Swift to Rust vertical slice")
@@ -34,6 +35,13 @@ struct CrossRuntimeIntegrationTests {
                 "enforced_session_mode": "safe",
                 "launch_arguments": ["--scenario", "permission", "--permission-kind", "edit"],
             ],
+            [
+                "id": "fake-unexpected-exit",
+                "display_name": "Fake Unexpected Exit Agent",
+                "command": fakeHarnessPath,
+                "enforced_session_mode": "safe",
+                "launch_arguments": ["--scenario", "unexpected-exit"],
+            ],
         ]]
         guard
             FileManager.default.isExecutableFile(atPath: fakeHarnessPath),
@@ -45,6 +53,7 @@ struct CrossRuntimeIntegrationTests {
             environmentOverrides: ["VELA_HARNESS_CONFIG": configPath]
         )
         let client = IPCClient()
+        let avatar = AvatarController(client: client, runtime: DebugShapeAvatarRuntime())
         supervisor.onUnexpectedExit = { [weak client] description in
             client?.disconnect(reason: description)
         }
@@ -91,6 +100,21 @@ struct CrossRuntimeIntegrationTests {
         #expect(client.permissionHistory.contains {
             $0.request.id == permission.id && $0.status == .allowed
         })
+
+        #expect(client.createSession(
+            agentID: "fake-unexpected-exit",
+            cwd: FileManager.default.currentDirectoryPath
+        ) != nil)
+        #expect(await waitUntil { client.session?.agentID == "fake-unexpected-exit" })
+        #expect(client.prompt("exit during this prompt") != nil)
+        #expect(await waitUntil {
+            if case .failed? = client.sessionEvents.last?.payload { return true }
+            return false
+        })
+        #expect(await waitUntil { avatar.state == .error })
+        try? await Task.sleep(for: .seconds(AvatarStateReducer.terminalDwell + 0.1))
+        avatar.refresh()
+        #expect(avatar.state == .idle)
 
         #expect(client.startStream(count: 3, intervalMilliseconds: 5) != nil)
         #expect(await waitUntil {

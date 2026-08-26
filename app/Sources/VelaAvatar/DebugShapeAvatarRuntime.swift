@@ -115,7 +115,7 @@ private struct DebugShapeAvatarView: View {
             runtime.setPresentationVisible(false)
         }
         .background {
-            TimelineView(.animation(minimumInterval: 1 / 15, paused: false)) { context in
+            TimelineView(.periodic(from: .now, by: 1.5)) { context in
                 Color.clear
                     .onChange(of: context.date) { _, date in
                         runtime.recordRenderedFrame(at: date)
