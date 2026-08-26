@@ -293,6 +293,21 @@ struct DiagnosticsView: View {
                     environment.avatarSurface
                 }
                 HStack {
+                    Toggle("Lip sync", isOn: Binding(
+                        get: { avatar.isLipSyncEnabled },
+                        set: { avatar.setLipSyncEnabled($0) }
+                    ))
+                    Toggle("Microphone RMS", isOn: Binding(
+                        get: { avatar.isMicrophoneLipSyncEnabled },
+                        set: { avatar.setMicrophoneLipSyncEnabled($0) }
+                    ))
+                    Toggle("Text cadence", isOn: Binding(
+                        get: { avatar.isTextLipSyncEnabled },
+                        set: { avatar.setTextLipSyncEnabled($0) }
+                    ))
+                }
+                .toggleStyle(.checkbox)
+                HStack {
                     ForEach(AvatarState.allCases, id: \.self) { state in
                         Button(state.rawValue.capitalized) {
                             avatar.setManualState(state)

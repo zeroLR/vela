@@ -1,7 +1,7 @@
 import Foundation
 import VelaIPC
 
-public enum AvatarState: String, CaseIterable, Equatable, Sendable {
+public enum AvatarState: String, CaseIterable, Codable, Equatable, Sendable {
     case idle
     case listening
     case thinking
@@ -93,11 +93,17 @@ public final class AvatarController: ObservableObject {
     @Published public private(set) var lastTransitionReason = "No runtime signal"
     @Published public private(set) var errors: [String] = []
     @Published public private(set) var isRuntimeEnabled = false
+    @Published public private(set) var isLipSyncEnabled = true
+    @Published public private(set) var isMicrophoneLipSyncEnabled = true
+    @Published public private(set) var isTextLipSyncEnabled = true
 
     private static let textDeltaWindow: TimeInterval = 1.5
 
     private let client: IPCClient?
     private let now: () -> Date
+    private let mapping: AvatarMappingConfiguration
+    private let microphoneLipSync = MicrophoneRMSSource()
+    private let textLipSync = TextCadenceLipSyncSource()
     private var runtime: (any AvatarRuntime)?
     private var manualState: AvatarState?
     private var manualStateAt: Date?
@@ -105,15 +111,22 @@ public final class AvatarController: ObservableObject {
     private var listeningSignalAt: Date?
     private var lastClientSignature = ""
     private var lastClientSignalAt: Date?
+    private var lastTextEventID: String?
     private var watchdogTask: Task<Void, Never>?
 
     public init(
         client: IPCClient? = nil,
         runtime: (any AvatarRuntime)? = nil,
+        mapping: AvatarMappingConfiguration = .builtIn,
+        configurationDiagnostic: String? = nil,
         now: @escaping () -> Date = { .now }
     ) {
         self.client = client
+        self.mapping = mapping
         self.now = now
+        if let configurationDiagnostic {
+            errors.append(configurationDiagnostic)
+        }
         install(runtime)
         watchdogTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
@@ -143,6 +156,29 @@ public final class AvatarController: ObservableObject {
         refresh()
     }
 
+    public func setLipSyncEnabled(_ isEnabled: Bool) {
+        isLipSyncEnabled = isEnabled
+        driveLipSync(at: now())
+    }
+
+    public func setMicrophoneLipSyncEnabled(_ isEnabled: Bool) {
+        isMicrophoneLipSyncEnabled = isEnabled
+        microphoneLipSync.isEnabled = isEnabled
+        driveLipSync(at: now())
+    }
+
+    public func setTextLipSyncEnabled(_ isEnabled: Bool) {
+        isTextLipSyncEnabled = isEnabled
+        textLipSync.isEnabled = isEnabled
+        driveLipSync(at: now())
+    }
+
+    public func setMicrophoneRMS(_ value: Double) {
+        let currentTime = now()
+        microphoneLipSync.accept(value, at: currentTime)
+        driveLipSync(at: currentTime)
+    }
+
     public func install(_ runtime: (any AvatarRuntime)?) {
         self.runtime?.unload()
         self.runtime = runtime
@@ -154,6 +190,7 @@ public final class AvatarController: ObservableObject {
             try runtime.load()
             isRuntimeEnabled = true
             try runtime.setState(state)
+            try applyMapping(for: state, to: runtime)
         } catch {
             disableRuntime(error)
         }
@@ -200,10 +237,15 @@ public final class AvatarController: ObservableObject {
         }
 
         let events = client.sessionEvents
-        let lastTextAt = events.last { event in
+        let lastText = events.last { event in
             if case .textDelta = event.payload { return true }
             return false
-        }.map(eventDate)
+        }
+        if let lastText, lastText.id != lastTextEventID {
+            lastTextEventID = lastText.id
+            textLipSync.recordTextDelta(at: eventDate(lastText))
+        }
+        let lastTextAt = lastText.map(eventDate)
         let lastSuccessAt = events.last { event in
             if case .completed = event.payload { return true }
             return false
@@ -248,12 +290,43 @@ public final class AvatarController: ObservableObject {
     }
 
     private func apply(_ resolution: AvatarStateResolution) {
-        guard state != resolution.state || lastTransitionReason != resolution.reason else { return }
-        state = resolution.state
-        lastTransitionReason = resolution.reason
+        if state != resolution.state || lastTransitionReason != resolution.reason {
+            state = resolution.state
+            lastTransitionReason = resolution.reason
+            if let runtime, isRuntimeEnabled {
+                do {
+                    try runtime.setState(resolution.state)
+                    try applyMapping(for: resolution.state, to: runtime)
+                } catch {
+                    disableRuntime(error)
+                    return
+                }
+            }
+        }
+        driveLipSync(at: now())
+    }
+
+    private func applyMapping(for state: AvatarState, to runtime: any AvatarRuntime) throws {
+        try runtime.setExpression(mapping.stateExpressions[state])
+        if let motion = mapping.stateMotions[state] {
+            try runtime.playMotion(motion)
+        }
+    }
+
+    private func driveLipSync(at now: Date) {
         guard let runtime, isRuntimeEnabled else { return }
+        let value: Double
+        if !isLipSyncEnabled {
+            value = 0
+        } else {
+            switch state {
+            case .listening: value = microphoneLipSync.value(at: now)
+            case .speaking: value = textLipSync.value(at: now)
+            default: value = 0
+            }
+        }
         do {
-            try runtime.setState(resolution.state)
+            try runtime.setLipSync(value)
         } catch {
             disableRuntime(error)
         }

@@ -5,12 +5,12 @@ import VelaIPC
 @MainActor
 final class QuickCapturePanelController {
     private let client: IPCClient
-    private let setAvatarListening: (Bool) -> Void
+    private let updateAvatarAudio: (Bool, Double) -> Void
     private var panel: NSPanel?
 
-    init(client: IPCClient, setAvatarListening: @escaping (Bool) -> Void) {
+    init(client: IPCClient, updateAvatarAudio: @escaping (Bool, Double) -> Void) {
         self.client = client
-        self.setAvatarListening = setAvatarListening
+        self.updateAvatarAudio = updateAvatarAudio
     }
 
     func show() {
@@ -32,7 +32,7 @@ final class QuickCapturePanelController {
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.contentView = NSHostingView(
-            rootView: QuickCaptureView(client: client, setAvatarListening: setAvatarListening) { [weak panel] in
+            rootView: QuickCaptureView(client: client, updateAvatarAudio: updateAvatarAudio) { [weak panel] in
                 panel?.orderOut(nil)
             }
         )
@@ -47,7 +47,7 @@ final class QuickCapturePanelController {
 
 private struct QuickCaptureView: View {
     @ObservedObject var client: IPCClient
-    let setAvatarListening: (Bool) -> Void
+    let updateAvatarAudio: (Bool, Double) -> Void
     let dismiss: () -> Void
 
     @StateObject private var speech = SpeechCaptureController()
@@ -169,7 +169,10 @@ private struct QuickCaptureView: View {
             source = .speech
         }
         .onChange(of: speech.isRecording) { _, isRecording in
-            setAvatarListening(isRecording)
+            updateAvatarAudio(isRecording, speech.microphoneRMS)
+        }
+        .onChange(of: speech.microphoneRMS) { _, microphoneRMS in
+            updateAvatarAudio(speech.isRecording, microphoneRMS)
         }
         .onChange(of: client.captures) { _, captures in
             guard submitted else { return }
@@ -229,7 +232,7 @@ private struct QuickCaptureView: View {
 
     private func finish() {
         speech.stop()
-        setAvatarListening(false)
+        updateAvatarAudio(false, 0)
         if result != nil {
             speech.discardRecoveryAudio()
         }

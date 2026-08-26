@@ -25,6 +25,7 @@ final class SpeechCaptureController: ObservableObject {
     @Published private(set) var state: State = .idle
     @Published private(set) var transcript = ""
     @Published private(set) var recoveryAudioPath: String?
+    @Published private(set) var microphoneRMS = 0.0
 
     private let audioEngine = AVAudioEngine()
     private let recognizer = SFSpeechRecognizer()
@@ -72,6 +73,7 @@ final class SpeechCaptureController: ObservableObject {
         audioEngine.stop()
         audioEngine.inputNode.removeTap(onBus: 0)
         recognitionRequest?.endAudio()
+        microphoneRMS = 0
         state = .transcribing
     }
 
@@ -96,6 +98,7 @@ final class SpeechCaptureController: ObservableObject {
             audioEngine.inputNode.removeTap(onBus: 0)
         }
         recognitionRequest?.endAudio()
+        microphoneRMS = 0
         recognitionTask?.cancel()
         recognitionTask = nil
         recognitionRequest = nil
@@ -122,7 +125,17 @@ final class SpeechCaptureController: ObservableObject {
         recognitionRequest = request
         audioFile = file
 
-        Self.installAudioTap(on: inputNode, format: format, request: request, file: file)
+        Self.installAudioTap(
+            on: inputNode,
+            format: format,
+            request: request,
+            file: file,
+            onAudioLevel: { @Sendable [weak self] level in
+                Task { @MainActor [weak self] in
+                    self?.microphoneRMS = level
+                }
+            }
+        )
         audioEngine.prepare()
         try audioEngine.start()
 
@@ -154,12 +167,29 @@ final class SpeechCaptureController: ObservableObject {
         on inputNode: AVAudioInputNode,
         format: AVAudioFormat,
         request: SFSpeechAudioBufferRecognitionRequest,
-        file: AVAudioFile
+        file: AVAudioFile,
+        onAudioLevel: @escaping @Sendable (Double) -> Void
     ) {
         inputNode.installTap(onBus: 0, bufferSize: 1_024, format: format) { buffer, _ in
             request.append(buffer)
             try? file.write(from: buffer)
+            onAudioLevel(normalizedRMS(buffer))
         }
+    }
+
+    private nonisolated static func normalizedRMS(_ buffer: AVAudioPCMBuffer) -> Double {
+        guard let channels = buffer.floatChannelData, buffer.frameLength > 0 else { return 0 }
+        let frameCount = Int(buffer.frameLength)
+        let channelCount = Int(buffer.format.channelCount)
+        var sum = 0.0
+        for channel in 0 ..< channelCount {
+            for frame in 0 ..< frameCount {
+                let sample = Double(channels[channel][frame])
+                sum += sample * sample
+            }
+        }
+        let rms = (sum / Double(frameCount * channelCount)).squareRoot()
+        return min(rms * 8, 1)
     }
 
     private func receiveRecognition(

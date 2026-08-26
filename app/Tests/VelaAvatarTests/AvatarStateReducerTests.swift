@@ -130,6 +130,59 @@ struct AvatarStateReducerTests {
         try runtime.setLipSync(2)
         #expect(runtime.lipSync == 1)
     }
+
+    @Test("lip-sync sources and the global switch can each be disabled")
+    @MainActor
+    func lipSyncSwitches() {
+        let now = Date.now
+        let microphone = MicrophoneRMSSource()
+        microphone.accept(0.6, at: now)
+        #expect(microphone.value(at: now) == 0.6)
+        microphone.isEnabled = false
+        #expect(microphone.value(at: now) == 0)
+
+        let text = TextCadenceLipSyncSource()
+        text.recordTextDelta(at: now.addingTimeInterval(-0.2))
+        text.recordTextDelta(at: now)
+        #expect(text.value(at: now) > 0)
+        text.isEnabled = false
+        #expect(text.value(at: now) == 0)
+
+        let runtime = DebugShapeAvatarRuntime()
+        let controller = AvatarController(runtime: runtime)
+        controller.setManualState(.listening)
+        controller.setMicrophoneRMS(0.75)
+        #expect(runtime.lipSync == 0.75)
+        controller.setLipSyncEnabled(false)
+        #expect(runtime.lipSync == 0)
+    }
+
+    @Test("mapping envelope accepts a second adapter and invalid files fall back safely")
+    func mappingEnvelope() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vela-avatar-mapping-\(UUID().uuidString)", isDirectory: true)
+        let mappingURL = directory.appendingPathComponent("mapping.json")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let mapping = AvatarMappingConfiguration(
+            stateExpressions: [.success: "celebrate"],
+            stateMotions: [.thinking: "wait"],
+            adapters: [
+                "debug_shape": AvatarAdapterMapping(values: ["accent": "green"]),
+                "hypothetical_renderer": AvatarAdapterMapping(values: ["signal": "awake"]),
+            ]
+        )
+        try JSONEncoder().encode(mapping).write(to: mappingURL)
+        let loaded = AvatarMappingLoader.load(from: mappingURL)
+        #expect(loaded.mapping == mapping)
+        #expect(loaded.diagnostic == nil)
+
+        try Data("not json".utf8).write(to: mappingURL)
+        let invalid = AvatarMappingLoader.load(from: mappingURL)
+        #expect(invalid.mapping == .builtIn)
+        #expect(invalid.diagnostic != nil)
+    }
 }
 
 @MainActor

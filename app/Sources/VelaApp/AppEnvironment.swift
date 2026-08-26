@@ -23,7 +23,13 @@ final class AppEnvironment: ObservableObject {
         self.client = client
         self.supervisor = supervisor
         let avatarRuntime = AvatarRuntimeFactory.debugShape()
-        avatar = AvatarController(client: client, runtime: avatarRuntime.runtime)
+        let avatarMapping = AvatarMappingLoader.loadDefault()
+        avatar = AvatarController(
+            client: client,
+            runtime: avatarRuntime.runtime,
+            mapping: avatarMapping.mapping,
+            configurationDiagnostic: avatarMapping.diagnostic
+        )
         avatarSurface = avatarRuntime.view
         supervisor.onUnexpectedExit = { [weak client] description in
             client?.disconnect(reason: description)
@@ -51,8 +57,9 @@ final class AppEnvironment: ObservableObject {
 
     func installCaptureUI() {
         guard globalHotKey == nil else { return }
-        let panel = QuickCapturePanelController(client: client) { [weak self] isListening in
+        let panel = QuickCapturePanelController(client: client) { [weak self] isListening, microphoneRMS in
             self?.avatar.setListening(isListening)
+            self?.avatar.setMicrophoneRMS(microphoneRMS)
         }
         let hotKey = GlobalHotKeyController { [weak self] in
             self?.showQuickCapture()
