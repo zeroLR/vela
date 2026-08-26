@@ -272,7 +272,7 @@ The capture lane may perform deterministic or lightweight processing such as tra
 
 ## 11. Avatar Boundary
 
-The UI depends on a Vela-owned `AvatarRuntime` abstraction rather than Live2D-specific types.
+The UI depends on a Vela-owned `AvatarRuntime` abstraction rather than renderer-specific types.
 
 ```text
 AvatarRuntime
@@ -285,7 +285,9 @@ AvatarRuntime
 - lookAt
 ```
 
-The first adapter may be Live2D Cubism, but the domain communicates semantic states such as `idle`, `listening`, `thinking`, `speaking`, `success`, and `error`.
+The domain communicates semantic states such as `idle`, `listening`, `thinking`, `speaking`, `success`, and `error`. The renderer decides how a state becomes an expression or motion; the contract carries semantic states and normalized values only, never a renderer's parameter, input, or file names.
+
+The first adapter is Rive. A Live2D adapter is an intended second consumer, reached through a `WKWebView` rather than the native C++ SDK, and that second consumer is why renderer vocabulary must stay inside the adapter and its configuration block. Semantic state is derived in Swift from signals the app already publishes, so an avatar defect cannot reach Core, capture, or ACP. See [`plan/07-avatar-presence.md`](../plan/07-avatar-presence.md).
 
 ## 12. Observability
 

@@ -28,7 +28,7 @@ Vela Core (Rust / Tokio)
 
 Native macOS layers:
 - Audio: AVFoundation
-- Avatar: pluggable AvatarRuntime, initially Live2D Cubism
+- Avatar: pluggable AvatarRuntime, first adapter Rive
 - Secrets: Keychain
 - Notifications: UserNotifications
 ```

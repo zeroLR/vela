@@ -13,7 +13,8 @@
 | Workspace | Filesystem | Canonical local-first work state |
 | Index/event DB | SQLite, rusqlite | Events, indexes, session metadata, schedules, caches |
 | Avatar | `AvatarRuntime` abstraction | Stable semantic avatar interface |
-| Initial avatar adapter | Live2D Cubism SDK for Native | Rendering, expressions, motions, lip sync |
+| Initial avatar adapter | Rive (`rive-app/rive-ios`, MIT) | Rendering, state-machine reactions, lip-sync input |
+| Deferred avatar adapter | Live2D Cubism SDK for Web in `WKWebView` | Intended second adapter; gated on licensing and resource cost |
 | Audio | AVFoundation | Microphone capture and audio playback |
 | Speech | Adapter-based | Apple/local/cloud STT and TTS implementations |
 | Secrets | macOS Keychain | Vela-owned secrets only |
@@ -170,3 +171,5 @@ Do not add these during the initial validation path unless a milestone proves th
 - custom MCP execution runtime;
 - multi-agent graph orchestration;
 - full-duplex always-listening voice.
+
+The deferred Live2D avatar adapter would run inside a `WKWebView`. That is not an exception to the first item: the WebView would render the avatar only and expose a single avatar command channel. Hosting Vela UI in a web runtime remains deferred and requires its own justification.
