@@ -22,10 +22,18 @@ final class SpeechCaptureController: ObservableObject {
         }
     }
 
-    @Published private(set) var state: State = .idle
+    @Published private(set) var state: State = .idle {
+        didSet {
+            if (oldValue == .recording) != (state == .recording) {
+                onRecordingChanged(state == .recording)
+            }
+        }
+    }
     @Published private(set) var transcript = ""
     @Published private(set) var recoveryAudioPath: String?
-    @Published private(set) var microphoneRMS = 0.0
+    @Published private(set) var microphoneRMS = 0.0 {
+        didSet { onMicrophoneRMS(microphoneRMS) }
+    }
 
     private let audioEngine = AVAudioEngine()
     private let recognizer = SFSpeechRecognizer()
@@ -33,6 +41,16 @@ final class SpeechCaptureController: ObservableObject {
     private var recognitionTask: SFSpeechRecognitionTask?
     private var audioFile: AVAudioFile?
     private var stopRequested = false
+    private let onRecordingChanged: (Bool) -> Void
+    private let onMicrophoneRMS: (Double) -> Void
+
+    init(
+        onRecordingChanged: @escaping (Bool) -> Void = { _ in },
+        onMicrophoneRMS: @escaping (Double) -> Void = { _ in }
+    ) {
+        self.onRecordingChanged = onRecordingChanged
+        self.onMicrophoneRMS = onMicrophoneRMS
+    }
 
     var isRecording: Bool { state == .recording }
 
@@ -93,6 +111,7 @@ final class SpeechCaptureController: ObservableObject {
 
     func stop() {
         stopRequested = true
+        onRecordingChanged(false)
         if audioEngine.isRunning {
             audioEngine.stop()
             audioEngine.inputNode.removeTap(onBus: 0)

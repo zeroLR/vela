@@ -1,16 +1,17 @@
 import AppKit
 import SwiftUI
+import VelaAvatar
 import VelaIPC
 
 @MainActor
 final class QuickCapturePanelController {
     private let client: IPCClient
-    private let updateAvatarAudio: (Bool, Double) -> Void
+    private let avatar: AvatarController
     private var panel: NSPanel?
 
-    init(client: IPCClient, updateAvatarAudio: @escaping (Bool, Double) -> Void) {
+    init(client: IPCClient, avatar: AvatarController) {
         self.client = client
-        self.updateAvatarAudio = updateAvatarAudio
+        self.avatar = avatar
     }
 
     func show() {
@@ -32,7 +33,7 @@ final class QuickCapturePanelController {
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.contentView = NSHostingView(
-            rootView: QuickCaptureView(client: client, updateAvatarAudio: updateAvatarAudio) { [weak panel] in
+            rootView: QuickCaptureView(client: client, avatar: avatar) { [weak panel] in
                 panel?.orderOut(nil)
             }
         )
@@ -47,10 +48,10 @@ final class QuickCapturePanelController {
 
 private struct QuickCaptureView: View {
     @ObservedObject var client: IPCClient
-    let updateAvatarAudio: (Bool, Double) -> Void
+    @ObservedObject var avatar: AvatarController
     let dismiss: () -> Void
 
-    @StateObject private var speech = SpeechCaptureController()
+    @StateObject private var speech: SpeechCaptureController
     @State private var rawText = ""
     @State private var selectedIntent: CaptureIntent?
     @State private var source: CaptureSource = .text
@@ -60,6 +61,16 @@ private struct QuickCaptureView: View {
     @State private var knownCaptureIDs: Set<String> = []
     @State private var result: CaptureRecord?
     @FocusState private var textFocused: Bool
+
+    init(client: IPCClient, avatar: AvatarController, dismiss: @escaping () -> Void) {
+        self.client = client
+        self.avatar = avatar
+        self.dismiss = dismiss
+        _speech = StateObject(wrappedValue: SpeechCaptureController(
+            onRecordingChanged: { avatar.setListening($0) },
+            onMicrophoneRMS: { avatar.setMicrophoneRMS($0) }
+        ))
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -97,6 +108,12 @@ private struct QuickCaptureView: View {
                     .lineLimit(3)
                     .fixedSize(horizontal: false, vertical: true)
                     .help(speech.state.label)
+                Text("Avatar: \(avatar.state.rawValue.capitalized)")
+                    .font(.caption)
+                    .foregroundStyle(avatar.state == .listening ? .purple : .secondary)
+                Capsule()
+                    .fill(avatar.state == .listening ? Color.purple : .secondary)
+                    .frame(width: 24, height: 4 + 14 * avatar.lipSyncValue)
                 Spacer()
                 speechButton
             }
@@ -168,12 +185,6 @@ private struct QuickCaptureView: View {
             rawText = transcript
             source = .speech
         }
-        .onChange(of: speech.isRecording) { _, isRecording in
-            updateAvatarAudio(isRecording, speech.microphoneRMS)
-        }
-        .onChange(of: speech.microphoneRMS) { _, microphoneRMS in
-            updateAvatarAudio(speech.isRecording, microphoneRMS)
-        }
         .onChange(of: client.captures) { _, captures in
             guard submitted else { return }
             if let capture = captures.first(where: { !knownCaptureIDs.contains($0.id) }) {
@@ -232,7 +243,8 @@ private struct QuickCaptureView: View {
 
     private func finish() {
         speech.stop()
-        updateAvatarAudio(false, 0)
+        avatar.setListening(false)
+        avatar.setMicrophoneRMS(0)
         if result != nil {
             speech.discardRecoveryAudio()
         }

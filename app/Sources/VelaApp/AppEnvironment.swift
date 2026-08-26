@@ -57,10 +57,7 @@ final class AppEnvironment: ObservableObject {
 
     func installCaptureUI() {
         guard globalHotKey == nil else { return }
-        let panel = QuickCapturePanelController(client: client) { [weak self] isListening, microphoneRMS in
-            self?.avatar.setListening(isListening)
-            self?.avatar.setMicrophoneRMS(microphoneRMS)
-        }
+        let panel = QuickCapturePanelController(client: client, avatar: avatar)
         let hotKey = GlobalHotKeyController { [weak self] in
             self?.showQuickCapture()
         }

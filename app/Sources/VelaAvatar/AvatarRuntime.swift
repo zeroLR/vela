@@ -105,6 +105,7 @@ public final class AvatarController: ObservableObject {
     @Published public private(set) var isLipSyncEnabled = true
     @Published public private(set) var isMicrophoneLipSyncEnabled = true
     @Published public private(set) var isTextLipSyncEnabled = true
+    @Published public private(set) var lipSyncValue = 0.0
 
     private static let textDeltaWindow: TimeInterval = 1.5
 
@@ -360,6 +361,7 @@ public final class AvatarController: ObservableObject {
             }
         }
         do {
+            lipSyncValue = value
             try runtime.setLipSync(value)
         } catch {
             disableRuntime(error)
