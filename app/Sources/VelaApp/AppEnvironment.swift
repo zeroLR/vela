@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import SwiftUI
 import VelaAvatar
 import VelaIPC
 
@@ -8,6 +9,7 @@ final class AppEnvironment: ObservableObject {
     let client: IPCClient
     let supervisor: CoreProcessSupervisor
     let avatar: AvatarController
+    let avatarSurface: AnyView
     @Published private(set) var captureShortcutStatus = "Not installed"
 
     private var quickCapturePanel: QuickCapturePanelController?
@@ -20,7 +22,9 @@ final class AppEnvironment: ObservableObject {
     ) {
         self.client = client
         self.supervisor = supervisor
-        avatar = AvatarController(client: client)
+        let avatarRuntime = AvatarRuntimeFactory.debugShape()
+        avatar = AvatarController(client: client, runtime: avatarRuntime.runtime)
+        avatarSurface = avatarRuntime.view
         supervisor.onUnexpectedExit = { [weak client] description in
             client?.disconnect(reason: description)
         }

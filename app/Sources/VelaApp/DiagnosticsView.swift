@@ -279,15 +279,18 @@ struct DiagnosticsView: View {
         GroupBox {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Text(avatar.state.rawValue.capitalized)
-                        .font(.headline)
-                    Text(avatar.lastTransitionReason)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(avatar.state.rawValue.capitalized)
+                            .font(.headline)
+                        Text(avatar.lastTransitionReason)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(avatar.isRuntimeEnabled ? "Runtime enabled" : "Renderer disabled")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                     Spacer()
-                    Text(avatar.isRuntimeEnabled ? "Runtime enabled" : "No renderer installed")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    environment.avatarSurface
                 }
                 HStack {
                     ForEach(AvatarState.allCases, id: \.self) { state in

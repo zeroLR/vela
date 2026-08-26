@@ -113,6 +113,23 @@ struct AvatarStateReducerTests {
         controller.setListening(false)
         #expect(controller.state == .idle)
     }
+
+    @Test("debug shape adapter represents each semantic state with normalized renderer values")
+    @MainActor
+    func debugShapeRuntime() throws {
+        let runtime = DebugShapeAvatarRuntime()
+        try runtime.load()
+        #expect(runtime.isLoaded)
+
+        for state in AvatarState.allCases {
+            try runtime.setState(state)
+            #expect(runtime.state == state)
+        }
+        try runtime.setLipSync(-1)
+        #expect(runtime.lipSync == 0)
+        try runtime.setLipSync(2)
+        #expect(runtime.lipSync == 1)
+    }
 }
 
 @MainActor
